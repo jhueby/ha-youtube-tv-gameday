@@ -54,7 +54,7 @@ def guess_locals(lineup: dict[str, str]) -> dict[str, str]:
     for brand in LOCAL_NETWORKS:
         key = norm(brand)
         cands = [n for n in lineup if key in norm(n).split() and not any(w in norm(n) for w in _NOT_LOCAL)]
-        cands.sort(key=lambda n: (not re.search(r"\d", n), len(n)))   # prefer "FOX 31" over "FOX"
+        cands.sort(key=lambda n: (not re.search(r"\d", n), len(n)))   # prefer "FOX 5" over "FOX"
         if cands:
             guesses[brand] = cands[0]
     return guesses

@@ -66,7 +66,7 @@ NETWORKS: dict[str, tuple[str, list[str]]] = {
     "Galavision": ("Galavision", ["galavision"]),
     "CNBC": ("CNBC", ["cnbc"]),
 }
-# Over-the-air networks: the lineup shows the local station ("Denver 7"), so the user maps them.
+# Over-the-air networks: the lineup shows the local station ("ABC 7"), so the user maps them.
 LOCAL_NETWORKS = ["ABC", "CBS", "NBC", "FOX", "CW", "Telemundo", "Univision"]
 # When a game is on several channels the user has, prefer this order (English national first).
 PREFERENCE = list(NETWORKS)

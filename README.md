@@ -58,7 +58,7 @@ Copy `custom_components/youtube_tv_gameday` into your `config/custom_components/
       (Chrome may ask you to type `allow pasting` first.)
    3. When it says *"N channels copied"*, paste into the **Channel lineup** box.
 4. **Local stations.** Tell it which channels are your local ABC, CBS, NBC and FOX
-   (e.g. "Denver 7", "FOX 31"). Most are guessed for you.
+   (e.g. "ABC 7", "FOX 5"). Most are guessed for you.
 5. Add the card to a dashboard (below). Favorite teams, leagues and the TV-power entity are
    under the integration's **Configure** button.
 
@@ -80,7 +80,7 @@ For a dedicated tablet, put it alone in a **panel** view. It pairs well with
 
 | Service | What it does |
 |---|---|
-| `youtube_tv_gameday.tune_channel` | `channel:` (as named in your lineup, e.g. `ESPN`, `FOX 31`) — turns the TV on if configured, then tunes. |
+| `youtube_tv_gameday.tune_channel` | `channel:` (as named in your lineup, e.g. `ESPN`, `FOX 5`) — turns the TV on if configured, then tunes. |
 | `youtube_tv_gameday.scoreboard` | Returns today's games with scores and channels (response only). |
 
 ```yaml

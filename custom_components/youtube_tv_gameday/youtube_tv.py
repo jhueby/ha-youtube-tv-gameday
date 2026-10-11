@@ -33,7 +33,7 @@ class TuneError(Exception):
 class DialDevice:
     name: str
     host: str
-    app_url: str          # DIAL Application-URL, e.g. http://192.168.1.74:8080/ws/apps/
+    app_url: str          # DIAL Application-URL, e.g. http://192.168.1.50:8080/ws/apps/
 
 
 def app_endpoint(app_url: str) -> str:
