@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 DOMAIN = "youtube_tv_gameday"
-VERSION = "0.2.0"
+VERSION = "0.2.1"
 
 CONF_APP_URL = "app_url"
 CONF_LINEUP = "lineup"            # {channel name as shown in YouTube TV: live watch id}
