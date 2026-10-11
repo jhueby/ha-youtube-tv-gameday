@@ -71,6 +71,7 @@ def _clean_locals(user_input: dict[str, Any]) -> dict[str, str]:
     return {b: v for b, v in user_input.items() if b in LOCAL_NETWORKS and v and v != NONE}
 
 
+LINEUP_HELP = {"live_url": "https://tv.youtube.com/live", "example": "ESPN: https://tv.youtube.com/watch/..."}
 LINEUP_SCHEMA = vol.Schema({vol.Required(CONF_LINEUP): TextSelector(TextSelectorConfig(multiline=True))})
 
 
@@ -129,7 +130,8 @@ class GameDayConfigFlow(ConfigFlow, domain=DOMAIN):
             if self._lineup:
                 return await self.async_step_locals()
             errors["base"] = "bad_lineup"
-        return self.async_show_form(step_id="lineup", data_schema=LINEUP_SCHEMA, errors=errors)
+        return self.async_show_form(step_id="lineup", data_schema=LINEUP_SCHEMA, errors=errors,
+                                    description_placeholders=LINEUP_HELP)
 
     async def async_step_locals(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         if user_input is not None:
@@ -179,7 +181,8 @@ class GameDayOptionsFlow(OptionsFlow):
                 locals_ = {b: c for b, c in self.config_entry.options.get(CONF_LOCALS, {}).items() if c in lineup}
                 return self._save(**{CONF_LINEUP: lineup, CONF_LOCALS: locals_ or guess_locals(lineup)})
             errors["base"] = "bad_lineup"
-        return self.async_show_form(step_id="lineup", data_schema=LINEUP_SCHEMA, errors=errors)
+        return self.async_show_form(step_id="lineup", data_schema=LINEUP_SCHEMA, errors=errors,
+                                    description_placeholders=LINEUP_HELP)
 
     async def async_step_locals(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         lineup = self.config_entry.options.get(CONF_LINEUP, {})

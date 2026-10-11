@@ -13,7 +13,7 @@
       },
       "lineup": {
         "title": "Import your YouTube TV channels",
-        "description": "Open tv.youtube.com/live in a desktop browser, run the lineup snippet from the README in the browser console, and paste the result here. You can also paste lines like `ESPN: https://tv.youtube.com/watch/...`.",
+        "description": "Open {live_url} in a desktop browser, run the lineup snippet from the README in the browser console, and paste the result here. You can also paste lines like `{example}`.",
         "data": { "lineup": "Channel lineup" }
       },
       "locals": {
