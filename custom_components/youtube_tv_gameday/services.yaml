@@ -1,0 +1,21 @@
+tune_channel:
+  fields:
+    channel:
+      required: true
+      example: ESPN
+      selector:
+        text:
+    label:
+      example: LSU @ Kentucky
+      selector:
+        text:
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: youtube_tv_gameday
+scoreboard:
+  fields:
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: youtube_tv_gameday
