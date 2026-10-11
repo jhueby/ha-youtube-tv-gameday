@@ -106,22 +106,34 @@ async def discover(session: aiohttp.ClientSession, wait: float = 4.0) -> list[Di
 async def tune(session: aiohttp.ClientSession, app_url: str, video_id: str) -> None:
     """Bring YouTube TV to the front and play a live channel. Raises TuneError."""
     endpoint = app_endpoint(app_url)
-    try:
-        async with session.get(endpoint, timeout=TIMEOUT) as resp:
-            dial = await resp.text()
-    except (aiohttp.ClientError, asyncio.TimeoutError) as err:
-        raise TuneError(f"TV not reachable ({err})") from err
+    dial = None
+    for attempt in range(8):   # a TV that just woke up can take a while to answer DIAL
+        try:
+            async with session.get(endpoint, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                dial = await resp.text()
+            break
+        except (aiohttp.ClientError, asyncio.TimeoutError) as err:
+            if attempt == 7:
+                raise TuneError(f"TV not reachable ({err}) — is it on, and is network wake-up enabled?") from err
+            await asyncio.sleep(4)
     running = "<state>running</state>" in dial
     try:  # launch / foreground the app
         async with session.post(endpoint, data=b"", headers=DIAL_HEADERS, timeout=TIMEOUT):
             pass
     except (aiohttp.ClientError, asyncio.TimeoutError):
         pass
-    if not running:
-        await asyncio.sleep(10)
-        async with session.get(endpoint, timeout=TIMEOUT) as resp:
-            dial = await resp.text()
-    m = re.search(r"<screenId>([^<]+)</screenId>", dial)
+    m = re.search(r"<screenId>([^<]+)</screenId>", dial) if running else None
+    for _ in range(6 if not m else 0):   # app is starting: wait for it to register its lounge screen
+        await asyncio.sleep(4)
+        try:
+            async with session.get(endpoint, timeout=TIMEOUT) as resp:
+                dial = await resp.text()
+        except (aiohttp.ClientError, asyncio.TimeoutError):
+            continue
+        m = re.search(r"<screenId>([^<]+)</screenId>", dial)
+        if m and "<state>running</state>" in dial:
+            await asyncio.sleep(3)          # give the app a moment past "running" before tuning
+            break
     if not m:
         raise TuneError("YouTube TV on the TV did not report a screen id (is the app installed and signed in?)")
     screen_id = m.group(1)

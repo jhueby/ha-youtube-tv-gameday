@@ -116,6 +116,7 @@ class GameDayCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
             "games": self.data or [],
             "updated": (getattr(self, "fetched_at", None) or dt_util.utcnow()).isoformat(),
             "now": self.now_channel,
+            "tv": self._tv_state(),
             "favorites": self.favorites,
             "quick": self.channels.quick_channels(),
         }
@@ -130,6 +131,14 @@ class GameDayCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
             await tune(self.session, self.config_entry.data[CONF_APP_URL], video_id)
             self.now_channel, self.now_label, self.tuned_at = channel, label, dt_util.now()
             self.async_update_listeners()
+
+    def _tv_state(self) -> str | None:
+        """'on' / 'off' (or None when no power entity is configured) — the card uses it for messaging."""
+        entity = self.config_entry.options.get(CONF_POWER_ENTITY)
+        state = self.hass.states.get(entity) if entity else None
+        if state is None:
+            return None
+        return "off" if state.state in ("off", "standby", "unavailable", "unknown") else "on"
 
     async def _power_on(self) -> None:
         entity = self.config_entry.options.get(CONF_POWER_ENTITY)

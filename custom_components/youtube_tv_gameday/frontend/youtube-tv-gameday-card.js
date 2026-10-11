@@ -116,13 +116,17 @@ class YouTubeTvGamedayCard extends HTMLElement {
     if (this._busy) return;
     this._busy = true;
     el?.classList.add("tapped");
-    this._toast(`Switching the TV to <b>${esc(ch)}</b>${label ? " · " + esc(label) : ""}…`, "busy");
+    const what = `<b>${esc(ch)}</b>${label ? " · " + esc(label) : ""}`;
+    this._toast(this._data?.tv === "off"
+      ? `Turning on the TV and opening YouTube TV for ${what}… <span class="soft">(about 30 s)</span>`
+      : `Switching the TV to ${what}…`, "busy");
     try {
       const data = { channel: ch };
       if (label) data.label = label;
       if (this._config.entry_id) data.config_entry_id = this._config.entry_id;
       await this._hass.callService("youtube_tv_gameday", "tune_channel", data);
       this._now = ch;
+      if (this._data) this._data.tv = "on";
       this._toast(`📺 Now on <b>${esc(ch)}</b>`, "ok");
       this._render();
     } catch (e) {
@@ -487,6 +491,7 @@ const CSS = `
     box-shadow:0 10px 30px rgba(0,0,0,.4); max-width:90%; }
   .toast.show { opacity:1; transform:translate(-50%, 0); }
   .toast.err { background:#ffb4a8; } .toast.ok { background:#c8f7d8; }
+  .toast .soft { opacity:.6; font-size:14px; }
   @media (max-width: 700px) { .brand { font-size:18px; } .brand .date { display:none; } .grid { grid-template-columns:1fr; } }
 `;
 
