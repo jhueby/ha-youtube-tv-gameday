@@ -168,6 +168,22 @@ class YouTubeTvGamedayCard extends HTMLElement {
     if (kind !== "busy") this._tt = setTimeout(() => (t.className = "toast"), 3500);
   }
 
+  // Times follow Home Assistant's time zone (where the TV is), not the browser's — a wall tablet set to
+  // the wrong zone shouldn't show the wrong kickoff. `time_zone: browser` (or an IANA name) overrides.
+  _tz() {
+    const want = this._config.time_zone;
+    if (want === "browser") return undefined;
+    return want || this._hass?.config?.time_zone || undefined;
+  }
+
+  _time(iso) {
+    try {
+      return new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", timeZone: this._tz() });
+    } catch (e) {   // unknown zone name -> browser time
+      return new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    }
+  }
+
   _isFav(g) {
     return g.teams.some((t) => [t.name, t.full, t.abbr].some((n) => n && this._favs.includes(String(n).toLowerCase())));
   }
@@ -185,8 +201,8 @@ class YouTubeTvGamedayCard extends HTMLElement {
       .sort((a, b) => byFav(a, b) || (!!b.alert - !!a.alert) || (!!b.channel - !!a.channel));
     const next = games.filter((g) => g.state === "pre").sort((a, b) => byFav(a, b) || a.start.localeCompare(b.start));
     const done = games.filter((g) => g.state === "post").sort((a, b) => byFav(a, b) || b.start.localeCompare(a.start));
-    const today = new Date().toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" });
-    const upd = d?.updated ? new Date(d.updated).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "—";
+    const today = new Date().toLocaleDateString([], { weekday: "long", month: "long", day: "numeric", timeZone: this._tz() });
+    const upd = d?.updated ? this._time(d.updated) : "—";
 
     main.innerHTML = `
       <header>
@@ -227,7 +243,7 @@ class YouTubeTvGamedayCard extends HTMLElement {
     const mini = (g) => {
       const [a, h] = g.teams.length === 2 ? g.teams : [g.teams[0] || {}, g.teams[1] || {}];
       const st = g.state === "in" ? `<span class="livetag">LIVE</span> ${esc(g.detail)}`
-        : g.state === "pre" ? (g.tbd ? "TBD" : esc(new Date(g.start).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })))
+        : g.state === "pre" ? (g.tbd ? "TBD" : esc(this._time(g.start)))
         : esc(g.detail || "Final");
       const tappable = (g.channel || g.app) && g.state !== "post";
       const row = (t) => `<div class="mrow ${g.state === "post" && t.winner === false ? "lose" : ""}">
@@ -268,7 +284,7 @@ class YouTubeTvGamedayCard extends HTMLElement {
     const label = `${a.abbr || a.name} @ ${h.abbr || h.name}`;
     let status;
     if (g.state === "in") status = `<span class="livetag">LIVE</span> ${esc(g.detail)}`;
-    else if (g.state === "pre") status = g.tbd ? "TBD" : esc(new Date(g.start).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }));
+    else if (g.state === "pre") status = g.tbd ? "TBD" : esc(this._time(g.start));
     else status = esc(g.detail || "Final");
     const tappable = (g.channel || g.app) && g.state !== "post";
     const net = g.channel ? `<span class="net ${onTv ? "on" : ""}">${onTv ? "📺 " : ""}${esc((this._short || {})[g.channel] || g.channel)}</span>`

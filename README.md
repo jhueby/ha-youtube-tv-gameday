@@ -82,6 +82,7 @@ type: custom:youtube-tv-gameday-card
 # optional:
 favorites: [Guardians, Cavaliers]   # overrides the integration's favorites
 refresh: 30                         # seconds
+time_zone: browser                  # times use Home Assistant's time zone by default
 ```
 
 Compact row for a home dashboard (your teams' games + close games; "Open" links to the full board):
