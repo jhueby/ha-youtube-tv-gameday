@@ -13,8 +13,8 @@ from homeassistant.components import websocket_api
 from homeassistant.components.frontend import add_extra_js_url
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry, ConfigEntryState
-from homeassistant.const import Platform
-from homeassistant.core import Event, HomeAssistant, ServiceCall, ServiceResponse, SupportsResponse
+from homeassistant.const import EVENT_HOMEASSISTANT_STARTED, Platform
+from homeassistant.core import CoreState, Event, HomeAssistant, ServiceCall, ServiceResponse, SupportsResponse
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.typing import ConfigType
@@ -50,7 +50,20 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     await hass.http.async_register_static_paths([StaticPathConfig(CARD_URL, str(card), True)])
     # cache-bust on content, not just version, so dashboards pick up card edits
     digest = await hass.async_add_executor_job(lambda: hashlib.sha1(card.read_bytes()).hexdigest()[:8])
-    add_extra_js_url(hass, f"{CARD_URL}?v={VERSION}-{digest}")
+    card_url = f"{CARD_URL}?v={VERSION}-{digest}"
+    add_extra_js_url(hass, card_url)
+    add_extra_js_url(hass, card_url, es5=True)
+    # Some kiosk WebViews (e.g. Fully Kiosk on Fire tablets) never run the injected URLs above, but do
+    # load dashboard resources — so also keep a Lovelace resource pointing at the current card version.
+    async def _register(_event: Event | None = None) -> None:
+        # distinct URL: the frontend skips a resource whose exact URL is already on the page as an
+        # injected script — even when that injected copy never ran (the kiosk case above)
+        await _ensure_resource(hass, f"{card_url}&src=resource")
+
+    if hass.state is CoreState.running:
+        hass.async_create_task(_register())
+    else:
+        hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, _register)
     websocket_api.async_register_command(hass, ws_scoreboard)
     websocket_api.async_register_command(hass, ws_game)
 
@@ -104,6 +117,29 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         schema=vol.Schema({vol.Optional(ATTR_ENTRY): cv.string}),
         supports_response=SupportsResponse.ONLY)
     return True
+
+
+async def _ensure_resource(hass: HomeAssistant, url: str) -> None:
+    """Create/refresh the card's Lovelace resource (storage-mode dashboards only; YAML mode is left alone)."""
+    lovelace = hass.data.get("lovelace")
+    resources = getattr(lovelace, "resources", None)
+    if resources is None and isinstance(lovelace, dict):
+        resources = lovelace.get("resources")
+    if resources is None or not hasattr(resources, "async_create_item"):
+        return
+    try:
+        if not getattr(resources, "loaded", True):
+            await resources.async_load()
+            resources.loaded = True
+        base = url.split("?")[0]
+        for item in resources.async_items():
+            if str(item.get("url", "")).split("?")[0] == base:
+                if item["url"] != url:
+                    await resources.async_update_item(item["id"], {"res_type": "module", "url": url})
+                return
+        await resources.async_create_item({"res_type": "module", "url": url})
+    except Exception as err:  # noqa: BLE001 - never block setup over the dashboard resource
+        _LOGGER.warning("Couldn't register the card as a dashboard resource: %s", err)
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: GameDayConfigEntry) -> bool:
