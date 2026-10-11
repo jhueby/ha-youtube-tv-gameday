@@ -9,5 +9,5 @@
   "iot_class": "cloud_polling",
   "issue_tracker": "https://github.com/jhueby/ha-youtube-tv-gameday/issues",
   "requirements": [],
-  "version": "0.4.0"
+  "version": "0.4.1"
 }

@@ -259,7 +259,7 @@ class YouTubeTvGamedayCard extends HTMLElement {
 
     main.innerHTML = `
       <header>
-        <div class="brand"><span class="ball">●</span> GAME DAY <span class="date">${esc(today)}</span></div>
+        <div class="brand">${this._config.home ? `<button class="homebtn" data-nav="${esc(this._config.home)}" aria-label="Home">⌂ Home</button>` : ""}<span class="ball">●</span> GAME DAY <span class="date">${esc(today)}</span></div>
         <div class="meta">
           ${this._now ? `<span class="nowpill">📺 On TV: <b>${esc(this._now === "saved stream" && this._nowLabel ? this._nowLabel : this._now)}</b></span>` : ""}
           <span class="upd">${this._error ? `<span class="errtxt">⚠ ${esc(this._error)}</span>` : `Updated ${esc(upd)}`}</span>
@@ -471,6 +471,9 @@ const CSS = `
   header { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:16px 20px 6px; flex-wrap:wrap; }
   .brand { font-weight:900; letter-spacing:.14em; font-size:22px; }
   .brand .ball { color:#ff3b30; font-size:16px; vertical-align:middle; }
+  .homebtn { margin-right:14px; background:#18202c; border:1px solid #2a3547; color:#e8edf5; border-radius:12px;
+    padding:8px 14px; font-size:15px; font-weight:700; letter-spacing:.02em; cursor:pointer; vertical-align:middle; }
+  .homebtn:active { transform:scale(.95); }
   .brand .date { font-weight:500; letter-spacing:.02em; color:#9aa7b8; font-size:15px; margin-left:10px; }
   .meta { display:flex; gap:12px; align-items:center; color:#9aa7b8; font-size:14px; }
   .nowpill { background:#1f6f3f; color:#d9ffe6; padding:6px 12px; border-radius:999px; font-size:14px; }
