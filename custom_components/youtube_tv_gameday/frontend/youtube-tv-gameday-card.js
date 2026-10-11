@@ -40,9 +40,10 @@ class YouTubeTvGamedayCard extends HTMLElement {
     this._root.addEventListener("click", (ev) => {
       if (this._longFired) { this._longFired = false; ev.preventDefault(); return; }  // long-press already handled
       if (ev.target.id === "sheet" || ev.target.closest("[data-close]")) { this._closeDetail(); return; }
-      const el = ev.target.closest("[data-info],[data-ch],[data-filter],[data-mine]");
+      const el = ev.target.closest("[data-nav],[data-info],[data-ch],[data-filter],[data-mine]");
       if (!el) return;
-      if (el.dataset.info) this._openDetail(el.dataset.info);
+      if (el.dataset.nav) this._navigate(el.dataset.nav);
+      else if (el.dataset.info) this._openDetail(el.dataset.info);
       else if (el.dataset.filter) { this._filter = el.dataset.filter; this._save(); this._render(); }
       else if (el.dataset.mine !== undefined) { this._mine = !this._mine; this._save(); this._render(); }
       else if (el.dataset.ch) this._tune(el.dataset.ch, el.dataset.label, el);
@@ -147,6 +148,7 @@ class YouTubeTvGamedayCard extends HTMLElement {
   _render() {
     const main = this._root?.getElementById("main");
     if (!main) return;
+    if (this._config.mode === "strip") { this._renderStrip(main); return; }
     const d = this._data;
     const games = (d?.games || []).filter((g) =>
       (this._filter === "All" || g.league === this._filter) && (!this._mine || g.channel));
@@ -182,6 +184,49 @@ class YouTubeTvGamedayCard extends HTMLElement {
         ${(d?.quick || []).map((q) =>
           `<button class="chan ${q.channel === this._now ? "on" : ""}" data-ch="${esc(q.channel)}">${esc(q.label)}</button>`).join("")}
       </footer>`;
+  }
+
+  // ---------------------------------------------------------------- compact strip (mode: strip)
+  _renderStrip(main) {
+    this._root.querySelector(".wrap").classList.add("strip");
+    const d = this._data;
+    const order = { in: 0, pre: 1, post: 2 };
+    const items = (d?.games || [])
+      .filter((g) => this._isFav(g) || (g.state === "in" && g.alert))
+      .sort((a, b) => (order[a.state] - order[b.state]) || (!!b.alert - !!a.alert) || a.start.localeCompare(b.start))
+      .slice(0, this._config.max || 8);
+    const live = (d?.games || []).filter((g) => g.state === "in").length;
+    const more = this._config.more;
+    const mini = (g) => {
+      const [a, h] = g.teams.length === 2 ? g.teams : [g.teams[0] || {}, g.teams[1] || {}];
+      const st = g.state === "in" ? `<span class="livetag">LIVE</span> ${esc(g.detail)}`
+        : g.state === "pre" ? (g.tbd ? "TBD" : esc(new Date(g.start).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })))
+        : esc(g.detail || "Final");
+      const tappable = g.channel && g.state !== "post";
+      const row = (t) => `<div class="mrow ${g.state === "post" && t.winner === false ? "lose" : ""}">
+        ${t.logo ? `<img src="${esc(t.logo.replace("/500/", "/500-dark/"))}" data-light="${esc(t.logo)}"
+          onerror="if(this.dataset.light&&this.src!==this.dataset.light){this.src=this.dataset.light}" alt="">` : ""}
+        <span class="mabbr">${esc(t.abbr || t.name)}</span><span class="msc">${g.state === "pre" ? "" : esc(t.score ?? "")}</span></div>`;
+      return `<div class="mini tile ${g.state} ${tappable ? "tap" : ""} ${g.state === "in" && g.alert ? "alert " + esc(g.alert.kind) : ""}"
+          data-gid="${esc(g.id)}" ${tappable ? `data-ch="${esc(g.channel)}" data-label="${esc((a.abbr || "") + " @ " + (h.abbr || ""))}"` : ""}
+          style="--c1:${hex(a.color, "#3a4a63")};--c2:${hex(h.color, "#63503a")}">
+        <div class="mtop"><span class="lg">${esc(TAG[g.league] || g.league)}</span><span class="st">${st}</span></div>
+        ${row(a)}${row(h)}
+        <div class="mfoot">${g.state === "in" && g.alert ? `<span class="malert">${esc(g.alert.text)}</span>`
+          : `<span class="net ${g.channel ? "" : "none"}">${esc(g.channel ? ((this._short || {})[g.channel] || g.channel) : ((g.nets || [])[0] || ""))}</span>`}</div>
+      </div>`;
+    };
+    main.innerHTML = `
+      <div class="shead"><span class="brand"><span class="ball">●</span> GAME DAY</span>
+        <span class="smeta">${this._now ? `📺 ${esc(this._now)} · ` : ""}${live} live</span>
+        ${more ? `<a class="open" data-nav="${esc(more)}">Open ›</a>` : ""}</div>
+      <div class="srow">${items.length ? items.map(mini).join("")
+        : `<div class="sempty">${d ? "No games for your teams today." : "Loading…"}${live && more ? ` <a data-nav="${esc(more)}">See all ${live} live games ›</a>` : ""}</div>`}</div>`;
+  }
+
+  _navigate(path) {
+    history.pushState(null, "", path);
+    window.dispatchEvent(new CustomEvent("location-changed", { bubbles: true, composed: true }));
   }
 
   _section(title, games, kind) {
@@ -419,6 +464,24 @@ const CSS = `
   .dchips { display:flex; flex-wrap:wrap; gap:8px; margin-top:16px; }
   .dchips span { background:#1b2432; color:#c9d3e0; border-radius:999px; padding:6px 12px; font-size:13px; }
   @media (max-width: 700px) { .leaders { grid-template-columns:1fr; } .dscore { font-size:30px; } .dteam img { width:38px; height:38px; } }
+  .wrap.strip { min-height:0; height:auto; border-radius:var(--ha-card-border-radius, 12px); padding:10px 0 12px;
+    border:1px solid #222c3b; }
+  .shead { display:flex; align-items:center; gap:10px; padding:0 14px 8px; }
+  .shead .brand { font-size:14px; letter-spacing:.16em; }
+  .smeta { color:#9aa7b8; font-size:13px; margin-left:auto; }
+  .open, .sempty a { color:#8fc1ff; font-weight:700; font-size:13px; cursor:pointer; text-decoration:none; }
+  .srow { display:flex; gap:10px; overflow-x:auto; padding:2px 14px 4px; scrollbar-width:none; }
+  .sempty { color:#9aa7b8; font-size:14px; padding:14px 0; }
+  .mini { flex:none; width:200px; padding:9px 11px 8px; border-radius:14px; }
+  .mtop { display:flex; justify-content:space-between; font-size:11px; color:#9aa7b8; margin-bottom:4px; gap:6px; }
+  .mtop .st { font-size:11px; }
+  .mrow { display:flex; align-items:center; gap:7px; font-size:15px; font-weight:700; padding:2px 0; }
+  .mrow img { width:22px; height:22px; object-fit:contain; }
+  .mrow .msc { margin-left:auto; font-size:18px; font-weight:800; font-variant-numeric:tabular-nums; }
+  .mrow.lose { color:#7d8899; }
+  .mfoot { margin-top:5px; min-height:20px; }
+  .mfoot .net { font-size:11px; padding:2px 8px; }
+  .malert { color:#ffcf70; font-size:11.5px; font-weight:700; }
   .toast { position:fixed; z-index:6; left:50%; bottom:86px; transform:translate(-50%, 20px); opacity:0; pointer-events:none;
     background:#e8edf5; color:#0b0f16; padding:12px 20px; border-radius:14px; font-size:16px; transition:all .25s;
     box-shadow:0 10px 30px rgba(0,0,0,.4); max-width:90%; }

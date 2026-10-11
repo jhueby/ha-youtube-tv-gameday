@@ -24,6 +24,13 @@ which YouTube TV channel every game is on, and tunes the YouTube TV app on your 
   (ESPN+, Peacock, Paramount+…) are dimmed and show where they are.
 - A channel bar for jumping straight to ESPN, FOX, TBS, etc. — built from *your* lineup.
 - Favorite teams pinned to the top with a ★.
+- **Close-game alerts:** games that get tight late (one score in the last 5 minutes, one-goal
+  hockey in the 3rd, within 2 runs from the 8th, overtime/extra innings…) or where a ranked team
+  is in upset danger glow on the card and sort to the top. Optionally get a phone notification
+  with a **Watch** button that tunes the TV, and/or automate on the `youtube_tv_gameday_alert` event.
+- **Game detail:** press and hold a game (or tap ⓘ) for a sheet with the line score, a
+  win-probability chart, team leaders, the latest plays, the betting line, venue and weather.
+- **Strip mode** for a home dashboard: one compact row with your teams' games and any close games.
 - Optional: turn the TV on first (any `media_player` with `turn_on`, e.g. Samsung + Wake-on-LAN).
 - Sensors: **Now on** (last channel tuned) and **Live games** (with your favorites that are live),
   and a `tune_channel` service for automations ("put the Guardians on at first pitch").
@@ -71,6 +78,33 @@ type: custom:youtube-tv-gameday-card
 # optional:
 favorites: [Guardians, Cavaliers]   # overrides the integration's favorites
 refresh: 30                         # seconds
+```
+
+Compact row for a home dashboard (your teams' games + close games; "Open" links to the full board):
+
+```yaml
+type: custom:youtube-tv-gameday-card
+mode: strip
+more: /dashboard-sports/gameday     # optional "Open ›" link
+max: 8
+```
+
+### Close-game alerts
+
+Configure under **Configure → Favorites, leagues, TV power & alerts**: which games alert
+(your favorites, games with a Top 25 team, any game on your channels, or all) and an optional
+notify service. Each game alerts once per kind (close / overtime / upset). Every alert also fires
+the `youtube_tv_gameday_alert` event (`text`, `score`, `channel`, `kind`, `favorite`, `in_scope`):
+
+```yaml
+triggers:
+  - trigger: event
+    event_type: youtube_tv_gameday_alert
+    event_data: { favorite: true }
+actions:
+  - action: light.turn_on
+    target: { entity_id: light.living_room }
+    data: { flash: short }
 ```
 
 For a dedicated tablet, put it alone in a **panel** view. It pairs well with

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 from pathlib import Path
 
@@ -45,9 +46,11 @@ def _coordinator(hass: HomeAssistant, entry_id: str | None) -> GameDayCoordinato
 
 async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Serve the card, register services and the websocket command (once per HA start)."""
-    await hass.http.async_register_static_paths([
-        StaticPathConfig(CARD_URL, str(Path(__file__).parent / "frontend" / "youtube-tv-gameday-card.js"), True)])
-    add_extra_js_url(hass, f"{CARD_URL}?v={VERSION}")
+    card = Path(__file__).parent / "frontend" / "youtube-tv-gameday-card.js"
+    await hass.http.async_register_static_paths([StaticPathConfig(CARD_URL, str(card), True)])
+    # cache-bust on content, not just version, so dashboards pick up card edits
+    digest = await hass.async_add_executor_job(lambda: hashlib.sha1(card.read_bytes()).hexdigest()[:8])
+    add_extra_js_url(hass, f"{CARD_URL}?v={VERSION}-{digest}")
     websocket_api.async_register_command(hass, ws_scoreboard)
     websocket_api.async_register_command(hass, ws_game)
 
