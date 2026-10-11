@@ -1,9 +1,11 @@
 """YouTube TV Gameday: live scores in Home Assistant, tap a game to put it on your TV via YouTube TV."""
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 
+import aiohttp
 import voluptuous as vol
 
 from homeassistant.components import websocket_api
@@ -11,13 +13,14 @@ from homeassistant.components.frontend import add_extra_js_url
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.config_entries import ConfigEntry, ConfigEntryState
 from homeassistant.const import Platform
-from homeassistant.core import HomeAssistant, ServiceCall, ServiceResponse, SupportsResponse
+from homeassistant.core import Event, HomeAssistant, ServiceCall, ServiceResponse, SupportsResponse
 from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.typing import ConfigType
 
-from .const import CARD_URL, DOMAIN, VERSION
+from .const import ACTION_PREFIX, CARD_URL, DOMAIN, VERSION
 from .coordinator import GameDayCoordinator
+from .espn import fetch_summary
 from .youtube_tv import TuneError
 
 _LOGGER = logging.getLogger(__name__)
@@ -46,6 +49,19 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         StaticPathConfig(CARD_URL, str(Path(__file__).parent / "frontend" / "youtube-tv-gameday-card.js"), True)])
     add_extra_js_url(hass, f"{CARD_URL}?v={VERSION}")
     websocket_api.async_register_command(hass, ws_scoreboard)
+    websocket_api.async_register_command(hass, ws_game)
+
+    async def notification_action(event: Event) -> None:
+        """'Watch on <channel>' button on a close-game notification (mobile_app)."""
+        action = str(event.data.get("action") or "")
+        if not action.startswith(ACTION_PREFIX):
+            return
+        try:
+            await _coordinator(hass, None).async_tune(action[len(ACTION_PREFIX):], "from alert")
+        except (ServiceValidationError, TuneError) as err:
+            _LOGGER.warning("Watch from notification failed: %s", err)
+
+    hass.bus.async_listen("mobile_app_notification_action", notification_action)
 
     async def tune_channel(call: ServiceCall) -> ServiceResponse:
         coord = _coordinator(hass, call.data.get(ATTR_ENTRY))
@@ -101,3 +117,26 @@ async def ws_scoreboard(hass: HomeAssistant, connection: websocket_api.ActiveCon
         return
     await coord.async_fresh()
     connection.send_result(msg["id"], coord.payload())
+
+
+@websocket_api.websocket_command({vol.Required("type"): "youtube_tv_gameday/game",
+                                  vol.Required("game_id"): str, vol.Optional("entry_id"): str})
+@websocket_api.async_response
+async def ws_game(hass: HomeAssistant, connection: websocket_api.ActiveConnection, msg: dict) -> None:
+    """Detail for one game (the card's long-press sheet)."""
+    try:
+        coord = _coordinator(hass, msg.get("entry_id"))
+    except ServiceValidationError as err:
+        connection.send_error(msg["id"], "not_found", str(err))
+        return
+    game = next((g for g in coord.data or [] if g["id"] == msg["game_id"]), None)
+    if game is None:
+        connection.send_error(msg["id"], "not_found", "That game isn't on today's scoreboard")
+        return
+    try:
+        detail = await fetch_summary(coord.session, game["sport"], game["slug"], game["id"])
+    except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as err:
+        connection.send_error(msg["id"], "unavailable", f"ESPN summary failed: {err}")
+        return
+    detail.update(channel=game.get("channel"), nets=game.get("nets"), alert=game.get("alert"), league=game["league"])
+    connection.send_result(msg["id"], detail)

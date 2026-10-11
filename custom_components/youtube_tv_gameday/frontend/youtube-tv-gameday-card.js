@@ -7,6 +7,8 @@
  */
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const hex = (c, d) => (/^[0-9a-f]{6}$/i.test(c || "") ? "#" + c : d);
+const TAG = { "College Football": "NCAAF", "College Basketball": "NCAAB", "Premier League": "EPL",
+  "Champions League": "UCL", "International": "Intl" };  // short league tags for tiles
 
 class YouTubeTvGamedayCard extends HTMLElement {
   static getStubConfig() { return { refresh: 30 }; }
@@ -28,19 +30,66 @@ class YouTubeTvGamedayCard extends HTMLElement {
   }
 
   connectedCallback() { if (this._hass && !this._timer) this.hass = this._hass; }
-  disconnectedCallback() { clearInterval(this._timer); this._timer = null; }
+  disconnectedCallback() { clearInterval(this._timer); clearInterval(this._dtimer); this._timer = null; }
   getCardSize() { return 12; }
 
   _build() {
     this._root = this.attachShadow({ mode: "open" });
-    this._root.innerHTML = `<style>${CSS}</style><div class="wrap"><div id="main"></div><div class="toast" id="toast"></div></div>`;
+    this._root.innerHTML = `<style>${CSS}</style><div class="wrap"><div id="main"></div>
+      <div class="sheet-bg" id="sheet"></div><div class="toast" id="toast"></div></div>`;
     this._root.addEventListener("click", (ev) => {
-      const el = ev.target.closest("[data-ch],[data-filter],[data-mine]");
+      if (this._longFired) { this._longFired = false; ev.preventDefault(); return; }  // long-press already handled
+      if (ev.target.id === "sheet" || ev.target.closest("[data-close]")) { this._closeDetail(); return; }
+      const el = ev.target.closest("[data-info],[data-ch],[data-filter],[data-mine]");
       if (!el) return;
-      if (el.dataset.filter) { this._filter = el.dataset.filter; this._save(); this._render(); }
+      if (el.dataset.info) this._openDetail(el.dataset.info);
+      else if (el.dataset.filter) { this._filter = el.dataset.filter; this._save(); this._render(); }
       else if (el.dataset.mine !== undefined) { this._mine = !this._mine; this._save(); this._render(); }
       else if (el.dataset.ch) this._tune(el.dataset.ch, el.dataset.label, el);
     });
+    // press-and-hold a tile -> game detail (a short tap still tunes)
+    const cancel = () => { clearTimeout(this._press); this._press = null; };
+    this._root.addEventListener("pointerdown", (ev) => {
+      const tile = ev.target.closest(".tile[data-gid]");
+      if (!tile || ev.target.closest("[data-info]")) return;
+      this._pressAt = [ev.clientX, ev.clientY];
+      cancel();
+      this._press = setTimeout(() => { this._longFired = true; this._openDetail(tile.dataset.gid); }, 550);
+    });
+    this._root.addEventListener("pointermove", (ev) => {
+      if (this._press && Math.hypot(ev.clientX - this._pressAt[0], ev.clientY - this._pressAt[1]) > 12) cancel();
+    });
+    for (const e of ["pointerup", "pointercancel", "pointerleave"]) this._root.addEventListener(e, cancel);
+    this._root.addEventListener("contextmenu", (ev) => { if (ev.target.closest(".tile")) ev.preventDefault(); });
+  }
+
+  async _openDetail(gid) {
+    this._detailId = gid;
+    this._detail = null;
+    this._renderDetail();
+    await this._loadDetail();
+    clearInterval(this._dtimer);
+    this._dtimer = setInterval(() => this._loadDetail(), 20000);
+  }
+
+  _closeDetail() {
+    this._detailId = null;
+    clearInterval(this._dtimer);
+    this._renderDetail();
+  }
+
+  async _loadDetail() {
+    const gid = this._detailId;
+    if (!gid) return;
+    try {
+      const msg = { type: "youtube_tv_gameday/game", game_id: gid };
+      if (this._config.entry_id) msg.entry_id = this._config.entry_id;
+      const d = await this._hass.connection.sendMessagePromise(msg);
+      if (this._detailId === gid) { this._detail = d; this._detailErr = null; }
+    } catch (e) {
+      this._detailErr = (e && (e.message || e.code)) || "couldn't load the game";
+    }
+    this._renderDetail();
   }
 
   _save() {
@@ -103,7 +152,8 @@ class YouTubeTvGamedayCard extends HTMLElement {
       (this._filter === "All" || g.league === this._filter) && (!this._mine || g.channel));
     const leagues = ["All", ...new Set((d?.games || []).map((g) => g.league))];
     const byFav = (a, b) => (this._isFav(b) - this._isFav(a));
-    const live = games.filter((g) => g.state === "in").sort((a, b) => byFav(a, b) || (!!b.channel - !!a.channel));
+    const live = games.filter((g) => g.state === "in")
+      .sort((a, b) => byFav(a, b) || (!!b.alert - !!a.alert) || (!!b.channel - !!a.channel));
     const next = games.filter((g) => g.state === "pre").sort((a, b) => byFav(a, b) || a.start.localeCompare(b.start));
     const done = games.filter((g) => g.state === "post").sort((a, b) => byFav(a, b) || b.start.localeCompare(a.start));
     const today = new Date().toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" });
@@ -151,12 +201,15 @@ class YouTubeTvGamedayCard extends HTMLElement {
     const tappable = g.channel && g.state !== "post";
     const net = g.channel ? `<span class="net ${onTv ? "on" : ""}">${onTv ? "📺 " : ""}${esc((this._short || {})[g.channel] || g.channel)}</span>`
       : `<span class="net none">${esc((g.nets || [])[0] || "TV TBA")}</span>`;
+    const alert = g.state === "in" && g.alert;
     return `
-      <div class="tile ${g.state} ${tappable ? "tap" : "dim"} ${onTv ? "ontv" : ""} ${this._isFav(g) ? "fav" : ""}"
-           ${tappable ? `data-ch="${esc(g.channel)}" data-label="${esc(label)}"` : ""}
+      <div class="tile ${g.state} ${tappable ? "tap" : "dim"} ${onTv ? "ontv" : ""} ${this._isFav(g) ? "fav" : ""} ${alert ? "alert " + esc(alert.kind) : ""}"
+           data-gid="${esc(g.id)}" ${tappable ? `data-ch="${esc(g.channel)}" data-label="${esc(label)}"` : ""}
            style="--c1:${hex(a.color, "#3a4a63")};--c2:${hex(h.color, "#63503a")}">
-        <div class="top"><span class="lg">${esc(g.league)}${this._isFav(g) ? " ★" : ""}</span><span class="st">${status}</span></div>
+        <div class="top"><span class="lg">${esc(TAG[g.league] || g.league)}${this._isFav(g) ? " ★" : ""}</span>
+          <span class="st">${status}<button class="info" data-info="${esc(g.id)}" aria-label="Game details">i</button></span></div>
         ${this._team(a, g)}${this._team(h, g)}
+        ${alert ? `<div class="alertline">${{ close: "🔥", ot: "⏱", upset: "⚠" }[alert.kind] || "🔥"} ${esc(alert.text)}</div>` : ""}
         <div class="foot">${net}${this._situation(g)}</div>
       </div>`;
   }
@@ -185,6 +238,70 @@ class YouTubeTvGamedayCard extends HTMLElement {
       return `<span class="sit ${s.redzone ? "rz" : ""}">${esc(s.down)}${s.redzone ? " · RED ZONE" : ""}</span>`;
     }
     return g.note ? `<span class="sit note">${esc(g.note)}</span>` : "";
+  }
+
+  // ---------------------------------------------------------------- game detail sheet
+  _renderDetail() {
+    const box = this._root?.getElementById("sheet");
+    if (!box) return;
+    if (!this._detailId) { box.className = "sheet-bg"; box.innerHTML = ""; return; }
+    box.className = "sheet-bg open";
+    const d = this._detail;
+    const lite = (this._data?.games || []).find((g) => g.id === this._detailId);
+    if (!d) {
+      box.innerHTML = `<div class="sheet"><button class="x" data-close aria-label="Close">✕</button>
+        <div class="empty">${this._detailErr ? "⚠ " + esc(this._detailErr) : "Loading game…"}</div></div>`;
+      return;
+    }
+    const [a, h] = d.teams.length === 2 ? d.teams : [d.teams[0] || {}, d.teams[1] || {}];
+    const live = d.state === "in";
+    const logo = (t) => t.logo ? `<img src="${esc(t.logo.replace("/500/", "/500-dark/"))}" data-light="${esc(t.logo)}"
+      onerror="if(this.dataset.light&&this.src!==this.dataset.light){this.src=this.dataset.light}" alt="">` : "";
+    const head = (t) => `<div class="dteam">${logo(t)}<div class="dname">${esc(t.name)}
+      ${t.record ? `<span class="rec">${esc(t.record)}</span>` : ""}</div><div class="dscore">${d.state === "pre" ? "" : esc(t.score ?? "")}</div></div>`;
+    const periods = Math.max(a.periods?.length || 0, h.periods?.length || 0);
+    const lines = periods ? `<table class="lines"><tr><th></th>${Array.from({ length: periods }, (_, i) => `<th>${i + 1}</th>`).join("")}<th>T</th></tr>
+      ${[a, h].map((t) => `<tr><td>${esc(t.abbr)}</td>${Array.from({ length: periods }, (_, i) => `<td>${esc((t.periods || [])[i] ?? "")}</td>`).join("")}
+        <td class="tot">${esc(t.score ?? "")}</td></tr>`).join("")}</table>` : "";
+    const ch = d.channel;
+    const watch = ch && d.state !== "post"
+      ? `<button class="watch" data-ch="${esc(ch)}" data-label="${esc((a.abbr || "") + " @ " + (h.abbr || ""))}">📺 Watch on ${esc(ch)}</button>`
+      : `<span class="nowhere">${esc(d.state === "post" ? "Final" : (d.nets || [])[0] ? "On " + d.nets[0] + " (not in your lineup)" : "TV not announced")}</span>`;
+    const chips = [d.odds?.line && `Line ${d.odds.line}${d.odds.total ? " · O/U " + d.odds.total : ""}`, d.venue, d.weather,
+      d.attendance && `${Number(d.attendance).toLocaleString()} fans`].filter(Boolean);
+    box.innerHTML = `<div class="sheet" style="--c1:${hex(a.color, "#3a4a63")};--c2:${hex(h.color, "#63503a")}">
+      <button class="x" data-close aria-label="Close">✕</button>
+      <div class="dtop"><span class="lg">${esc(d.league || "")}</span>
+        <span class="st">${live ? '<span class="livetag">LIVE</span> ' : ""}${esc(d.detail || "")}</span></div>
+      <div class="dhead">${head(a)}<div class="at">@</div>${head(h)}</div>
+      ${d.alert && live ? `<div class="alertline big">${esc(d.alert.text)}</div>` : ""}
+      <div class="dactions">${watch}</div>
+      ${lines}
+      ${this._wpChart(d, a, h)}
+      ${d.leaders?.length ? `<h3>Leaders</h3><div class="leaders">${d.leaders.map((l) => `<div class="lcol"><div class="lteam">${esc(l.team)}</div>
+        ${l.cats.map((c) => `<div class="lrow"><span class="lcat">${esc(c.cat)}</span><span class="lwho">${esc(c.who || "")}</span>
+          <span class="lline">${esc(c.line)}</span></div>`).join("")}</div>`).join("")}</div>` : ""}
+      ${d.plays?.length ? `<h3>${d.state === "post" ? "Last plays" : "Latest"}</h3><ol class="plays">${d.plays.map((p) => `<li>${esc(p)}</li>`).join("")}</ol>` : ""}
+      ${chips.length ? `<div class="dchips">${chips.map((c) => `<span>${esc(c)}</span>`).join("")}</div>` : ""}
+    </div>`;
+  }
+
+  _wpChart(d, a, h) {
+    const wp = d.winprob || [];
+    if (wp.length < 2) return "";
+    const W = 600, H = 120, n = wp.length - 1;
+    const pts = wp.map((v, i) => `${(i / n * W).toFixed(1)},${((100 - v) / 100 * H).toFixed(1)}`).join(" ");
+    const now = wp[wp.length - 1];
+    const fav = now >= 50 ? h : a;
+    const pct = Math.round(now >= 50 ? now : 100 - now);
+    return `<h3>Win probability <span class="wpnow">${esc(fav.abbr)} ${pct}%</span></h3>
+      <svg class="wp" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">
+        <rect x="0" y="0" width="${W}" height="${H / 2}" fill="var(--c2)" opacity=".18"/>
+        <rect x="0" y="${H / 2}" width="${W}" height="${H / 2}" fill="var(--c1)" opacity=".18"/>
+        <line x1="0" y1="${H / 2}" x2="${W}" y2="${H / 2}" stroke="#6f7d90" stroke-dasharray="4 5" stroke-width="1"/>
+        <polyline points="${pts}" fill="none" stroke="#e8edf5" stroke-width="2.5" stroke-linejoin="round" vector-effect="non-scaling-stroke"/>
+      </svg>
+      <div class="wplabels"><span>▲ ${esc(h.abbr)}</span><span>▼ ${esc(a.abbr)}</span></div>`;
   }
 }
 
@@ -225,8 +342,8 @@ const CSS = `
   .tile.ontv { border-color:#3ddc84; box-shadow:0 0 0 2px rgba(61,220,132,.35), 0 8px 30px rgba(61,220,132,.15); }
   .tile.fav { background:#18202f; }
   .top { display:flex; justify-content:space-between; align-items:center; font-size:12.5px; color:#9aa7b8; margin-bottom:8px; }
-  .lg { text-transform:uppercase; letter-spacing:.1em; font-weight:700; }
-  .st { font-weight:700; color:#e8edf5; font-variant-numeric:tabular-nums; }
+  .lg { text-transform:uppercase; letter-spacing:.1em; font-weight:700; white-space:nowrap; }
+  .st { font-weight:700; color:#e8edf5; font-variant-numeric:tabular-nums; white-space:nowrap; display:flex; align-items:center; }
   .livetag { color:#ff6b61; font-weight:800; letter-spacing:.08em; margin-right:4px; }
   .livetag::before { content:""; margin-right:5px; vertical-align:1px; }
   .team { display:flex; align-items:center; gap:9px; padding:4px 0; font-size:18px; }
@@ -256,7 +373,53 @@ const CSS = `
     font-weight:800; font-size:15px; letter-spacing:.03em; cursor:pointer; }
   .chan.on { background:#2e7d4f; border-color:#3ddc84; }
   .chan:active { transform:scale(.95); }
-  .toast { position:fixed; left:50%; bottom:86px; transform:translate(-50%, 20px); opacity:0; pointer-events:none;
+  .info { margin-left:8px; width:22px; height:22px; border-radius:50%; border:1.5px solid #6f7d90; background:transparent;
+    color:#c9d3e0; font:italic 700 12px/1 Georgia, serif; cursor:pointer; vertical-align:middle; padding:0; }
+  .tile.alert { border-color:#f5a524; animation:glow 2.2s ease-in-out infinite; }
+  .tile.alert.upset { border-color:#ff6b61; }
+  @keyframes glow { 0%,100% { box-shadow:0 0 0 1px rgba(245,165,36,.35); } 50% { box-shadow:0 0 0 3px rgba(245,165,36,.55), 0 0 26px rgba(245,165,36,.25); } }
+  .alertline { margin-top:6px; color:#ffcf70; font-size:13px; font-weight:700; letter-spacing:.02em; }
+  .tile.upset .alertline { color:#ff9a90; }
+  .alertline.big { font-size:15px; text-align:center; margin:4px 0 10px; }
+  .sheet-bg { position:fixed; inset:0; background:rgba(5,8,12,.72); display:none; align-items:flex-end; justify-content:center; z-index:5; }
+  .sheet-bg.open { display:flex; }
+  .sheet { position:relative; width:min(760px, 100%); max-height:88vh; overflow-y:auto; background:#121924; border:1px solid #273244;
+    border-bottom:none; border-radius:22px 22px 0 0; padding:18px 20px 26px; animation:up .22s ease-out; }
+  .sheet::before { content:""; position:absolute; inset:0 0 auto 0; height:5px; border-radius:22px 22px 0 0;
+    background:linear-gradient(90deg, var(--c1), var(--c2)); }
+  @keyframes up { from { transform:translateY(40px); opacity:.4; } to { transform:none; opacity:1; } }
+  .x { position:absolute; top:12px; right:14px; width:36px; height:36px; border-radius:50%; border:none; background:#1f2836;
+    color:#e8edf5; font-size:16px; cursor:pointer; }
+  .dtop { display:flex; gap:12px; align-items:center; color:#9aa7b8; font-size:13px; margin:4px 44px 10px 0; }
+  .dhead { display:flex; align-items:center; gap:10px; }
+  .dteam { flex:1; display:flex; align-items:center; gap:10px; min-width:0; }
+  .dteam img { width:48px; height:48px; object-fit:contain; }
+  .dname { font-size:19px; font-weight:800; min-width:0; overflow:hidden; text-overflow:ellipsis; }
+  .dname .rec { display:block; font-weight:500; }
+  .dscore { margin-left:auto; font-size:38px; font-weight:900; font-variant-numeric:tabular-nums; }
+  .at { color:#6f7d90; font-weight:700; padding:0 4px; }
+  .dactions { display:flex; justify-content:center; margin:12px 0 6px; }
+  .watch { background:#2e7d4f; border:1px solid #3ddc84; color:#fff; border-radius:14px; padding:12px 22px; font-size:16px; font-weight:800; cursor:pointer; }
+  .nowhere { color:#7d8899; font-size:14px; }
+  h3 { font-size:12px; letter-spacing:.16em; text-transform:uppercase; color:#9aa7b8; margin:18px 0 8px; display:flex; justify-content:space-between; }
+  .wpnow { letter-spacing:.04em; color:#e8edf5; }
+  .lines { width:100%; border-collapse:collapse; margin-top:10px; font-variant-numeric:tabular-nums; font-size:14px; }
+  .lines th, .lines td { text-align:center; padding:5px 4px; border-bottom:1px solid #1f2836; color:#c9d3e0; }
+  .lines th { color:#7d8899; font-weight:600; } .lines td:first-child { text-align:left; font-weight:700; }
+  .lines .tot { font-weight:900; color:#fff; }
+  .wp { width:100%; height:110px; display:block; border-radius:10px; background:#0e141d; }
+  .wplabels { display:flex; justify-content:space-between; color:#7d8899; font-size:12px; margin-top:4px; }
+  .leaders { display:grid; grid-template-columns:1fr 1fr; gap:14px; }
+  .lteam { font-weight:800; margin-bottom:4px; }
+  .lrow { display:grid; grid-template-columns:1fr; font-size:13px; padding:5px 0; border-bottom:1px solid #1f2836; }
+  .lcat { color:#7d8899; font-size:11px; text-transform:uppercase; letter-spacing:.08em; }
+  .lwho { font-weight:700; } .lline { color:#c9d3e0; }
+  .plays { margin:0; padding-left:20px; color:#c9d3e0; font-size:14px; line-height:1.4; }
+  .plays li { padding:4px 0; } .plays li:first-child { color:#fff; font-weight:600; }
+  .dchips { display:flex; flex-wrap:wrap; gap:8px; margin-top:16px; }
+  .dchips span { background:#1b2432; color:#c9d3e0; border-radius:999px; padding:6px 12px; font-size:13px; }
+  @media (max-width: 700px) { .leaders { grid-template-columns:1fr; } .dscore { font-size:30px; } .dteam img { width:38px; height:38px; } }
+  .toast { position:fixed; z-index:6; left:50%; bottom:86px; transform:translate(-50%, 20px); opacity:0; pointer-events:none;
     background:#e8edf5; color:#0b0f16; padding:12px 20px; border-radius:14px; font-size:16px; transition:all .25s;
     box-shadow:0 10px 30px rgba(0,0,0,.4); max-width:90%; }
   .toast.show { opacity:1; transform:translate(-50%, 0); }

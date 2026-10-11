@@ -14,8 +14,9 @@ from homeassistant.helpers.selector import (EntitySelector, EntitySelectorConfig
                                             SelectSelector, SelectSelectorConfig, SelectSelectorMode,
                                             TextSelector, TextSelectorConfig)
 
-from .const import (CONF_APP_URL, CONF_FAVORITES, CONF_LEAGUES, CONF_LINEUP, CONF_LOCALS,
-                    CONF_POWER_ENTITY, DEFAULT_LEAGUES, DOMAIN, LEAGUES, LOCAL_NETWORKS)
+from .const import (ALERT_SCOPES, CONF_ALERT_NOTIFY, CONF_ALERT_SCOPE, CONF_APP_URL, CONF_FAVORITES,
+                    CONF_LEAGUES, CONF_LINEUP, CONF_LOCALS, CONF_POWER_ENTITY, DEFAULT_ALERT_SCOPE,
+                    DEFAULT_LEAGUES, DOMAIN, LEAGUES, LOCAL_NETWORKS)
 from .espn import norm
 from .youtube_tv import guess_app_urls, discover, probe
 
@@ -161,15 +162,26 @@ class GameDayOptionsFlow(OptionsFlow):
         opts = self.config_entry.options
         if user_input is not None:
             favs = [f.strip() for f in user_input.get(CONF_FAVORITES, "").split(",") if f.strip()]
+            notify = user_input.get(CONF_ALERT_NOTIFY)
             return self._save(**{CONF_FAVORITES: favs, CONF_LEAGUES: user_input[CONF_LEAGUES],
-                                 CONF_POWER_ENTITY: user_input.get(CONF_POWER_ENTITY)})
+                                 CONF_POWER_ENTITY: user_input.get(CONF_POWER_ENTITY),
+                                 CONF_ALERT_SCOPE: user_input.get(CONF_ALERT_SCOPE, []),
+                                 CONF_ALERT_NOTIFY: None if notify in (None, NONE) else notify})
         league_opts = [SelectOptionDict(value=k, label=v[0]) for k, v in LEAGUES.items()]
+        notify_opts = [SelectOptionDict(value=NONE, label="(no notifications — HA event only)")] + [
+            SelectOptionDict(value=f"notify.{svc}", label=f"notify.{svc}")
+            for svc in sorted(self.hass.services.async_services().get("notify", {}))]
         schema = vol.Schema({
             vol.Optional(CONF_FAVORITES, default=", ".join(opts.get(CONF_FAVORITES, []))): str,
             vol.Required(CONF_LEAGUES, default=opts.get(CONF_LEAGUES, DEFAULT_LEAGUES)):
                 SelectSelector(SelectSelectorConfig(options=league_opts, multiple=True)),
             vol.Optional(CONF_POWER_ENTITY, description={"suggested_value": opts.get(CONF_POWER_ENTITY)}):
                 EntitySelector(EntitySelectorConfig(domain="media_player")),
+            vol.Optional(CONF_ALERT_SCOPE, default=opts.get(CONF_ALERT_SCOPE, DEFAULT_ALERT_SCOPE)):
+                SelectSelector(SelectSelectorConfig(options=ALERT_SCOPES, multiple=True,
+                                                    translation_key=CONF_ALERT_SCOPE)),
+            vol.Optional(CONF_ALERT_NOTIFY, default=opts.get(CONF_ALERT_NOTIFY) or NONE):
+                SelectSelector(SelectSelectorConfig(options=notify_opts, mode=SelectSelectorMode.DROPDOWN)),
         })
         return self.async_show_form(step_id="general", data_schema=schema)
 

@@ -4,17 +4,23 @@
       "user": {
         "title": "Pick your TV",
         "description": "These devices on your network have the YouTube TV app. Pick the one to tune.",
-        "data": { "device": "TV" }
+        "data": {
+          "device": "TV"
+        }
       },
       "manual": {
         "title": "TV address",
         "description": "Enter the TV's IP address (or its DIAL app URL). The YouTube TV app must be installed on it.",
-        "data": { "host": "IP address or DIAL URL" }
+        "data": {
+          "host": "IP address or DIAL URL"
+        }
       },
       "lineup": {
         "title": "Import your YouTube TV channels",
         "description": "Open {live_url} in a desktop browser, run the lineup snippet from the README in the browser console, and paste the result here. You can also paste lines like `{example}`.",
-        "data": { "lineup": "Channel lineup" }
+        "data": {
+          "lineup": "Channel lineup"
+        }
       },
       "locals": {
         "title": "Local stations",
@@ -25,35 +31,58 @@
       "no_youtube_tv": "No YouTube TV app found at that address. Is the TV on and the app installed?",
       "bad_lineup": "Couldn't find any channels in that text."
     },
-    "abort": { "already_configured": "This TV is already set up." }
+    "abort": {
+      "already_configured": "This TV is already set up."
+    }
   },
   "options": {
     "step": {
       "init": {
         "title": "YouTube TV Gameday",
-        "menu_options": { "general": "Favorites, leagues & TV power", "lineup": "Re-import channel lineup", "locals": "Local stations" }
+        "menu_options": {
+          "general": "Favorites, leagues, TV power & alerts",
+          "lineup": "Re-import channel lineup",
+          "locals": "Local stations"
+        }
       },
       "general": {
-        "title": "Favorites, leagues & TV power",
+        "title": "Favorites, leagues, TV power & alerts",
         "data": {
           "favorites": "Favorite teams (comma separated, e.g. Guardians, Cavaliers)",
           "leagues": "Leagues to show",
-          "power_entity": "Turn this media player on before tuning (optional)"
+          "power_entity": "Turn this media player on before tuning (optional)",
+          "alert_scope": "Close-game alerts for",
+          "alert_notify": "Send alerts to"
+        },
+        "data_description": {
+          "alert_scope": "Alerts fire once per game when it gets close late, goes to overtime, or a ranked team is upset-threatened. They always fire the youtube_tv_gameday_alert event; pick who gets a notification.",
+          "alert_notify": "A notify service. Mobile-app notifications get a Watch button that tunes the TV."
         }
       },
       "lineup": {
         "title": "Re-import channel lineup",
         "description": "Paste a fresh lineup from the snippet (needed if you move or change your YouTube TV plan).",
-        "data": { "lineup": "Channel lineup" }
+        "data": {
+          "lineup": "Channel lineup"
+        }
       },
-      "locals": { "title": "Local stations", "description": "{count} channels in your lineup." }
+      "locals": {
+        "title": "Local stations",
+        "description": "{count} channels in your lineup."
+      }
     },
-    "error": { "bad_lineup": "Couldn't find any channels in that text." }
+    "error": {
+      "bad_lineup": "Couldn't find any channels in that text."
+    }
   },
   "entity": {
     "sensor": {
-      "now_on": { "name": "Now on" },
-      "live_games": { "name": "Live games" }
+      "now_on": {
+        "name": "Now on"
+      },
+      "live_games": {
+        "name": "Live games"
+      }
     }
   },
   "services": {
@@ -61,15 +90,39 @@
       "name": "Tune channel",
       "description": "Turn the TV on (if a power entity is set) and play a live YouTube TV channel.",
       "fields": {
-        "channel": { "name": "Channel", "description": "Channel name as it appears in your lineup." },
-        "label": { "name": "Label", "description": "Optional game label stored on the Now on sensor." },
-        "config_entry_id": { "name": "TV", "description": "Which TV (if you set up more than one)." }
+        "channel": {
+          "name": "Channel",
+          "description": "Channel name as it appears in your lineup."
+        },
+        "label": {
+          "name": "Label",
+          "description": "Optional game label stored on the Now on sensor."
+        },
+        "config_entry_id": {
+          "name": "TV",
+          "description": "Which TV (if you set up more than one)."
+        }
       }
     },
     "scoreboard": {
       "name": "Scoreboard",
       "description": "Today's games with live scores and the channel each one is on.",
-      "fields": { "config_entry_id": { "name": "TV", "description": "Which TV (if you set up more than one)." } }
+      "fields": {
+        "config_entry_id": {
+          "name": "TV",
+          "description": "Which TV (if you set up more than one)."
+        }
+      }
+    }
+  },
+  "selector": {
+    "alert_scope": {
+      "options": {
+        "favorites": "My favorite teams",
+        "ranked": "Games with a ranked (Top 25) team",
+        "my_channels": "Any game on my channels",
+        "all": "Every game"
+      }
     }
   }
 }

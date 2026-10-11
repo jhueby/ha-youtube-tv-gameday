@@ -90,9 +90,11 @@ def _networks(comp: dict[str, Any]) -> list[str]:
     return out
 
 
-def _game(league_key: str, label: str, sport: str, event: dict[str, Any], channels: ChannelMap) -> dict[str, Any]:
+def _game(league_key: str, label: str, sport: str, slug: str, event: dict[str, Any],
+          channels: ChannelMap) -> dict[str, Any]:
     comp = (event.get("competitions") or [{}])[0]
-    status = (comp.get("status") or event.get("status") or {}).get("type") or {}
+    st = comp.get("status") or event.get("status") or {}
+    status = st.get("type") or {}
     situation = comp.get("situation") or {}
     teams = []
     for t in sorted(comp.get("competitors") or [], key=lambda c: c.get("homeAway") != "away"):
@@ -118,12 +120,131 @@ def _game(league_key: str, label: str, sport: str, event: dict[str, Any], channe
         sit = {"down": situation.get("shortDownDistanceText") or situation.get("downDistanceText"),
                "redzone": situation.get("isRedZone")}
     nets = _networks(comp)
+    state = status.get("state", "pre")
+    period, clock = st.get("period") or 0, st.get("clock")
     return {
-        "id": event.get("id"), "league_key": league_key, "league": label, "sport": sport,
-        "state": status.get("state", "pre"), "detail": status.get("shortDetail") or status.get("detail"),
+        "id": event.get("id"), "league_key": league_key, "league": label, "sport": sport, "slug": slug,
+        "state": state, "detail": status.get("shortDetail") or status.get("detail"),
+        "alert": game_alert(sport, league_key, state, period, clock, teams),
         "start": event.get("date"), "tbd": comp.get("timeValid", True) is False,
         "teams": teams, "situation": sit, "nets": nets, "channel": channels.channel_for(nets),
         "note": ((comp.get("notes") or [{}])[0]).get("headline"),
+    }
+
+
+def _ordinal(n: int) -> str:
+    return f"{n}{'th' if 11 <= n % 100 <= 13 else {1: 'st', 2: 'nd', 3: 'rd'}.get(n % 10, 'th')}"
+
+
+def game_alert(sport: str, league_key: str, state: str, period: int, clock: float | None,
+               teams: list[dict[str, Any]]) -> dict[str, str] | None:
+    """Is this live game worth interrupting someone for? -> {"kind": close|ot|upset, "text": ...}."""
+    if state != "in" or len(teams) != 2:
+        return None
+    try:
+        away, home = (int(float(t.get("score") or 0)) for t in teams)
+    except (TypeError, ValueError):
+        return None
+    margin = abs(away - home)
+    secs = float(clock) if clock is not None else None
+    left = f"{int(secs // 60)}:{int(secs % 60):02d} left" if secs is not None else ""
+    leader = teams[0] if away > home else teams[1]
+    tied = "Tied" if margin == 0 else f"{leader.get('name')} by {margin}"
+
+    if sport == "football":
+        if period >= 5:
+            return {"kind": "ot", "text": f"Overtime · {tied}"}
+        if period == 4 and secs is not None and secs <= 300 and margin <= 8:
+            return {"kind": "close", "text": f"One-score game · {left} in the 4th"}
+    elif sport == "basketball":
+        final = 2 if league_key == "ncaab" else 4
+        if period > final:
+            return {"kind": "ot", "text": f"Overtime · {tied}"}
+        if period == final and secs is not None and secs <= 300 and margin <= 6:
+            return {"kind": "close", "text": f"{tied} · {left}"}
+    elif sport == "hockey":
+        if period > 3:
+            return {"kind": "ot", "text": f"Overtime · {tied}"}
+        if period == 3 and margin <= 1:
+            return {"kind": "close", "text": f"{'Tied' if margin == 0 else 'One-goal game'} · {left} in the 3rd"}
+    elif sport == "baseball":
+        if period > 9 and margin <= 2:
+            return {"kind": "ot", "text": f"Extra innings · {tied}"}
+        if period >= 8 and margin <= 2:
+            return {"kind": "close", "text": f"{tied} in the {_ordinal(period)}"}
+    elif sport == "soccer":
+        if period >= 3:
+            return {"kind": "ot", "text": f"Extra time · {tied}"}
+        if period == 2 and secs is not None and secs >= 75 * 60 and margin <= 1:
+            return {"kind": "close", "text": f"{tied} · {int(secs // 60)}'"}
+
+    # Upset watch: a ranked team trailing an unranked / lower-ranked one in the second half
+    late = period >= {"football": 3, "basketball": 2 if league_key == "ncaab" else 3}.get(sport, 99)
+    if late and margin > 0:
+        trailing = teams[1] if away > home else teams[0]
+        lr, tr = leader.get("rank") or 99, trailing.get("rank")
+        if tr and tr < lr:
+            return {"kind": "upset", "text": f"Upset alert · #{tr} {trailing.get('name')} trails by {margin}"}
+    return None
+
+
+async def fetch_summary(session: aiohttp.ClientSession, sport: str, slug: str, event_id: str) -> dict[str, Any]:
+    """One game's detail for the card's long-press sheet."""
+    url = f"{ESPN}/{sport}/{slug}/summary?event={event_id}"
+    async with session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+        resp.raise_for_status()
+        s = await resp.json(content_type=None)
+
+    comp = ((s.get("header") or {}).get("competitions") or [{}])[0]
+    teams = []
+    for c in sorted(comp.get("competitors") or [], key=lambda c: c.get("homeAway") != "away"):
+        tm = c.get("team") or {}
+        teams.append({"id": tm.get("id"), "name": tm.get("displayName"), "abbr": tm.get("abbreviation"),
+                      "logo": ((tm.get("logos") or [{}])[0]).get("href") or tm.get("logo"),
+                      "color": tm.get("color"), "score": c.get("score"),
+                      "periods": [l.get("displayValue") for l in c.get("linescores") or []],
+                      "record": ((c.get("record") or [{}])[0]).get("summary") if c.get("record") else None})
+    status = (comp.get("status") or {}).get("type") or {}
+
+    # win probability (home %, 0-100), thinned to <= 90 points
+    wp = [round(100 * float(p.get("homeWinPercentage") or 0), 1) for p in s.get("winprobability") or []]
+    if len(wp) > 90:
+        step = len(wp) / 90
+        wp = [wp[int(i * step)] for i in range(90)] + [wp[-1]]
+
+    # leaders: top 3 categories per team, best player in each
+    leaders = []
+    for block in s.get("leaders") or []:
+        tm = block.get("team") or {}
+        cats = []
+        for cat in (block.get("leaders") or [])[:3]:
+            top = (cat.get("leaders") or [{}])[0]
+            if top.get("displayValue"):
+                cats.append({"cat": cat.get("displayName"), "who": (top.get("athlete") or {}).get("shortName"),
+                             "line": top.get("displayValue")})
+        if cats:
+            leaders.append({"team": tm.get("abbreviation") or tm.get("displayName"), "cats": cats})
+
+    # latest plays, newest first
+    if sport == "football":
+        plays = [p.get("text") for p in ((s.get("drives") or {}).get("current") or {}).get("plays") or []]
+    elif sport == "soccer":
+        plays = [k.get("text") for k in s.get("keyEvents") or []]
+    else:
+        plays = [p.get("text") for p in s.get("plays") or []]
+    plays = [p for p in plays if p][-6:][::-1]
+
+    pick = (s.get("pickcenter") or [{}])[0]
+    info = s.get("gameInfo") or {}
+    weather = info.get("weather") or {}
+    return {
+        "id": event_id, "state": status.get("state"), "detail": status.get("shortDetail") or status.get("detail"),
+        "teams": teams, "winprob": wp, "leaders": leaders, "plays": plays,
+        "odds": {"line": pick.get("details"), "total": pick.get("overUnder")} if pick.get("details") else None,
+        "venue": (info.get("venue") or {}).get("fullName"),
+        "weather": f"{weather['temperature']}° {weather.get('conditionId') or ''}".strip()
+                   if weather.get("temperature") is not None else None,
+        "attendance": info.get("attendance"),
     }
 
 
@@ -137,10 +258,10 @@ async def fetch_scoreboard(session: aiohttp.ClientSession, leagues: list[str], d
             continue
         label, sport, slugs, extra = LEAGUES[key]
         for slug in slugs:
-            jobs.append((key, label, sport, f"{ESPN}/{sport}/{slug}/scoreboard?dates={date}{extra}"))
+            jobs.append((key, label, sport, slug, f"{ESPN}/{sport}/{slug}/scoreboard?dates={date}{extra}"))
 
     async def one(job):
-        key, label, sport, url = job
+        key, label, sport, slug, url = job
         try:
             async with session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
                 if resp.status != 200:
@@ -149,7 +270,7 @@ async def fetch_scoreboard(session: aiohttp.ClientSession, leagues: list[str], d
         except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as err:
             _LOGGER.debug("ESPN %s failed: %s", url, err)
             return []
-        return [_game(key, label, sport, e, channels) for e in data.get("events") or []]
+        return [_game(key, label, sport, slug, e, channels) for e in data.get("events") or []]
 
     results = await asyncio.gather(*(one(j) for j in jobs))
     seen: set[str] = set()

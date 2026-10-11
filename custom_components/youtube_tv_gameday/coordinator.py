@@ -12,8 +12,9 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
-from .const import (CONF_APP_URL, CONF_FAVORITES, CONF_LEAGUES, CONF_LINEUP, CONF_LOCALS,
-                    CONF_POWER_ENTITY, DEFAULT_LEAGUES, DOMAIN)
+from .const import (ACTION_PREFIX, CONF_ALERT_NOTIFY, CONF_ALERT_SCOPE, CONF_APP_URL, CONF_FAVORITES,
+                    CONF_LEAGUES, CONF_LINEUP, CONF_LOCALS, CONF_POWER_ENTITY, DEFAULT_ALERT_SCOPE,
+                    DEFAULT_LEAGUES, DOMAIN, EVENT_ALERT)
 from .espn import ChannelMap, fetch_scoreboard
 from .youtube_tv import TuneError, tune
 
@@ -33,6 +34,8 @@ class GameDayCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         self.now_label: str | None = None
         self.tuned_at = None
         self._tune_lock = asyncio.Lock()
+        self._alerted: set[tuple[str, str]] = set()   # (game id, alert kind) already announced
+        self._alert_day = None
 
     # --- options -------------------------------------------------------------------------
     @property
@@ -52,7 +55,54 @@ class GameDayCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         leagues = self.config_entry.options.get(CONF_LEAGUES, DEFAULT_LEAGUES)
         games = await fetch_scoreboard(self.session, leagues, dt_util.now(), self.channels)
         self.fetched_at = dt_util.utcnow()
+        self._announce(games)
         return games
+
+    # --- close-game alerts ---------------------------------------------------------------
+    def is_favorite(self, game: dict[str, Any]) -> bool:
+        favs = {f.lower() for f in self.favorites}
+        return any(str(t.get(k) or "").lower() in favs for t in game["teams"] for k in ("name", "full", "abbr"))
+
+    def _in_scope(self, game: dict[str, Any]) -> bool:
+        scope = self.config_entry.options.get(CONF_ALERT_SCOPE, DEFAULT_ALERT_SCOPE)
+        return ("all" in scope
+                or ("favorites" in scope and self.is_favorite(game))
+                or ("ranked" in scope and any(t.get("rank") for t in game["teams"]))
+                or ("my_channels" in scope and game.get("channel")))
+
+    def _announce(self, games: list[dict[str, Any]]) -> None:
+        """Fire each (game, alert kind) once: an HA event always, a phone notification if configured."""
+        today = dt_util.now().date()
+        if today != self._alert_day:
+            self._alerted.clear()
+            self._alert_day = today
+        for g in games:
+            alert = g.get("alert")
+            if not alert or (g["id"], alert["kind"]) in self._alerted:
+                continue
+            self._alerted.add((g["id"], alert["kind"]))
+            score = " – ".join(f"{t.get('name')} {t.get('score')}" for t in g["teams"])
+            data = {"game_id": g["id"], "league": g["league"], "kind": alert["kind"], "text": alert["text"],
+                    "score": score, "channel": g.get("channel"), "favorite": self.is_favorite(g),
+                    "in_scope": self._in_scope(g)}
+            self.hass.bus.async_fire(EVENT_ALERT, data)
+            target = self.config_entry.options.get(CONF_ALERT_NOTIFY)
+            if target and data["in_scope"]:
+                self.hass.async_create_task(self._notify(target, g, alert, score))
+
+    async def _notify(self, target: str, game: dict[str, Any], alert: dict[str, str], score: str) -> None:
+        title = {"close": "Close game", "ot": "Overtime", "upset": "Upset alert"}.get(alert["kind"], "Game alert")
+        channel = game.get("channel")
+        message = f"{score}\n{alert['text']}" + (f" · on {channel}" if channel else "")
+        data: dict[str, Any] = {"tag": f"ytgd-{game['id']}", "group": "youtube-tv-gameday"}
+        if channel:
+            data["actions"] = [{"action": f"{ACTION_PREFIX}{channel}", "title": f"Watch on {channel}"}]
+        domain, _, service = target.partition(".")
+        try:
+            await self.hass.services.async_call(domain or "notify", service or target,
+                                                {"title": f"{title}: {game['league']}", "message": message, "data": data})
+        except Exception as err:  # noqa: BLE001 - a bad notify target must not break polling
+            _LOGGER.warning("Alert notification via %s failed: %s", target, err)
 
     async def async_fresh(self) -> None:
         """Refresh if the data is older than FRESH (the card calls this on every poll)."""

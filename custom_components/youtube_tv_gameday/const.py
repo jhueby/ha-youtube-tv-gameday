@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 DOMAIN = "youtube_tv_gameday"
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 
 CONF_APP_URL = "app_url"
 CONF_LINEUP = "lineup"            # {channel name as shown in YouTube TV: live watch id}
@@ -10,6 +10,13 @@ CONF_LOCALS = "locals"            # {"ABC": "<lineup channel name>", ...}
 CONF_FAVORITES = "favorites"      # ["Guardians", "Cavaliers"]
 CONF_LEAGUES = "leagues"          # keys of LEAGUES
 CONF_POWER_ENTITY = "power_entity"
+CONF_ALERT_SCOPE = "alert_scope"    # which games alert: favorites / ranked / my_channels / all
+CONF_ALERT_NOTIFY = "alert_notify"  # notify service (e.g. notify.mobile_app_phone), optional
+
+ALERT_SCOPES = ["favorites", "ranked", "my_channels", "all"]
+DEFAULT_ALERT_SCOPE = ["favorites", "ranked"]
+EVENT_ALERT = "youtube_tv_gameday_alert"
+ACTION_PREFIX = "YTGD_TUNE|"         # mobile_app notification action: YTGD_TUNE|<channel>
 
 CARD_URL = "/youtube_tv_gameday/youtube-tv-gameday-card.js"
 ESPN = "https://site.api.espn.com/apis/site/v2/sports"
