@@ -9,14 +9,15 @@ from typing import Any
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
 from .const import (ACTION_PREFIX, CONF_ALERT_NOTIFY, CONF_ALERT_SCOPE, CONF_APP_URL, CONF_FAVORITES,
-                    CONF_LEAGUES, CONF_LINEUP, CONF_LOCALS, CONF_POWER_ENTITY, DEFAULT_ALERT_SCOPE,
+                    CONF_LEAGUES, CONF_LINEUP, CONF_LOCAL_TEAMS, CONF_LOCALS, CONF_POWER_ENTITY, DEFAULT_ALERT_SCOPE,
                     DEFAULT_LEAGUES, DOMAIN, EVENT_ALERT, STREAMING)
-from .espn import ChannelMap, fetch_scoreboard
-from .youtube_tv import TuneError, find_apps, launch_app, tune
+from .espn import ChannelMap, fetch_scoreboard, network_brand
+from .youtube_tv import TuneError, find_apps, launch_app, now_playing, tune
 
 _LOGGER = logging.getLogger(__name__)
 FRESH = timedelta(seconds=25)
@@ -38,6 +39,21 @@ class GameDayCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         self._apps_checked = None
         self._alerted: set[tuple[str, str]] = set()   # (game id, alert kind) already announced
         self._alert_day = None
+        # streams the user taught us ("it's on the TV now"): {game id: video id}, kept for the day
+        self._store = Store(hass, 1, f"{DOMAIN}.{entry.entry_id}.streams")
+        self.learned: dict[str, str] = {}
+        self._learned_day: str | None = None
+
+    async def async_load_learned(self) -> None:
+        data = await self._store.async_load() or {}
+        if data.get("day") == dt_util.now().date().isoformat():
+            self.learned, self._learned_day = dict(data.get("streams") or {}), data["day"]
+
+    def _learned_today(self) -> dict[str, str]:
+        today = dt_util.now().date().isoformat()
+        if self._learned_day != today:
+            self.learned, self._learned_day = {}, today
+        return self.learned
 
     # --- options -------------------------------------------------------------------------
     @property
@@ -113,12 +129,36 @@ class GameDayCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         if self.data is None or fetched is None or dt_util.utcnow() - fetched > FRESH:
             await self.async_refresh()
 
+    def _annotated(self) -> list[dict[str, Any]]:
+        """Games plus per-user facts: a stream the user saved for the game, and NFL regional overlap."""
+        learned = self._learned_today()
+        local = {t.lower() for t in self.config_entry.options.get(CONF_LOCAL_TEAMS, [])}
+        games = [dict(g) for g in self.data or []]
+        # Several NFL games on the same broadcast network at the same time = regional coverage:
+        # your local CBS/FOX station carries only one of them (your local team's, if it's playing).
+        slots: dict[tuple[str, str], list[dict[str, Any]]] = {}
+        for g in games:
+            brand = next((b for b in (network_brand(n) for n in g.get("nets") or []) if b), None)
+            if g.get("league_key") == "nfl" and g["state"] != "post" and brand in ("CBS", "FOX"):
+                slots.setdefault((brand, g["start"]), []).append(g)
+        for group in slots.values():
+            if len(group) < 2:
+                continue
+            for g in group:
+                is_local = any(str(t.get(k) or "").lower() in local for t in g["teams"] for k in ("name", "full", "abbr"))
+                g["regional"] = not is_local
+        for g in games:
+            if g["id"] in learned:
+                g["saved_stream"] = True
+        return games
+
     def payload(self) -> dict[str, Any]:
         """What the card needs, in one message."""
         return {
-            "games": self.data or [],
+            "games": self._annotated(),
             "updated": (getattr(self, "fetched_at", None) or dt_util.utcnow()).isoformat(),
             "now": self.now_channel,
+            "now_label": self.now_label,
             "tv": self._tv_state(),
             "favorites": self.favorites,
             "quick": self.channels.quick_channels(),
@@ -134,6 +174,47 @@ class GameDayCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
             await tune(self.session, self.config_entry.data[CONF_APP_URL], video_id)
             self.now_channel, self.now_label, self.tuned_at = channel, label, dt_util.now()
             self.async_update_listeners()
+
+    def _label(self, game: dict[str, Any]) -> str:
+        return " @ ".join(str(t.get("abbr") or t.get("name") or "") for t in game["teams"])
+
+    async def async_tune_game(self, game_id: str) -> dict[str, Any]:
+        """Put a game on: a stream the user saved for it, else its channel, else its streaming app."""
+        game = next((g for g in self.data or [] if g["id"] == game_id), None)
+        if game is None:
+            raise TuneError("that game isn't on today's scoreboard")
+        label = self._label(game)
+        saved = self._learned_today().get(game_id)
+        if saved:
+            async with self._tune_lock:
+                await self._power_on()
+                await tune(self.session, self.config_entry.data[CONF_APP_URL], saved)
+                name = next((c for c, v in self.lineup.items() if v == saved), "saved stream")
+                self.now_channel, self.now_label, self.tuned_at = name, label, dt_util.now()
+                self.async_update_listeners()
+            return {"via": "saved", "channel": name}
+        if game.get("channel"):
+            await self.async_tune(game["channel"], label)
+            return {"via": "channel", "channel": game["channel"]}
+        if game.get("app"):
+            await self.async_open_app(game["app"], label)
+            return {"via": "app", "app": game["app"]}
+        raise TuneError(f"{label} isn't on a channel or app you have")
+
+    async def async_remember(self, game_id: str) -> dict[str, Any]:
+        """'It's on the TV now': save what the TV is playing as this game's stream (for today)."""
+        game = next((g for g in self.data or [] if g["id"] == game_id), None)
+        if game is None:
+            raise TuneError("that game isn't on today's scoreboard")
+        video_id = await now_playing(self.session, self.config_entry.data[CONF_APP_URL])
+        if not video_id:
+            raise TuneError("YouTube TV isn't playing anything on the TV right now")
+        self._learned_today()[game_id] = video_id
+        await self._store.async_save({"day": self._learned_day, "streams": self.learned})
+        name = next((c for c, v in self.lineup.items() if v == video_id), None)
+        self.now_channel, self.now_label, self.tuned_at = name or "saved stream", self._label(game), dt_util.now()
+        self.async_update_listeners()
+        return {"video_id": video_id, "channel": name}
 
     def _tv_state(self) -> str | None:
         """'on' / 'off' (or None when no power entity is configured) — the card uses it for messaging."""

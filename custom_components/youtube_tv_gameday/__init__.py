@@ -97,6 +97,20 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
             raise HomeAssistantError(f"Couldn't open {app}: {err}") from err
         return {"app": app}
 
+    async def tune_game(call: ServiceCall) -> ServiceResponse:
+        coord = _coordinator(hass, call.data.get(ATTR_ENTRY))
+        try:
+            return await coord.async_tune_game(call.data["game_id"])
+        except TuneError as err:
+            raise HomeAssistantError(f"Couldn't put the game on: {err}") from err
+
+    async def remember_game(call: ServiceCall) -> ServiceResponse:
+        coord = _coordinator(hass, call.data.get(ATTR_ENTRY))
+        try:
+            return await coord.async_remember(call.data["game_id"])
+        except TuneError as err:
+            raise HomeAssistantError(f"Couldn't save the stream: {err}") from err
+
     async def scoreboard(call: ServiceCall) -> ServiceResponse:
         coord = _coordinator(hass, call.data.get(ATTR_ENTRY))
         await coord.async_fresh()
@@ -112,6 +126,11 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         schema=vol.Schema({vol.Required("app"): cv.string, vol.Optional("label"): cv.string,
                            vol.Optional(ATTR_ENTRY): cv.string}),
         supports_response=SupportsResponse.OPTIONAL)
+    game_schema = vol.Schema({vol.Required("game_id"): cv.string, vol.Optional(ATTR_ENTRY): cv.string})
+    hass.services.async_register(DOMAIN, "tune_game", tune_game, schema=game_schema,
+                                 supports_response=SupportsResponse.OPTIONAL)
+    hass.services.async_register(DOMAIN, "remember_game", remember_game, schema=game_schema,
+                                 supports_response=SupportsResponse.OPTIONAL)
     hass.services.async_register(
         DOMAIN, SERVICE_SCOREBOARD, scoreboard,
         schema=vol.Schema({vol.Optional(ATTR_ENTRY): cv.string}),
@@ -144,6 +163,7 @@ async def _ensure_resource(hass: HomeAssistant, url: str) -> None:
 
 async def async_setup_entry(hass: HomeAssistant, entry: GameDayConfigEntry) -> bool:
     coordinator = GameDayCoordinator(hass, entry)
+    await coordinator.async_load_learned()
     await coordinator.async_config_entry_first_refresh()
     entry.runtime_data = coordinator
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
@@ -191,6 +211,8 @@ async def ws_game(hass: HomeAssistant, connection: websocket_api.ActiveConnectio
     except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as err:
         connection.send_error(msg["id"], "unavailable", f"ESPN summary failed: {err}")
         return
-    detail.update(channel=game.get("channel"), app=game.get("app"), nets=game.get("nets"),
-                  alert=game.get("alert"), league=game["league"])
+    flags = next((g for g in coord.payload()["games"] if g["id"] == game["id"]), {})
+    detail.update(game_id=game["id"], channel=game.get("channel"), app=game.get("app"), nets=game.get("nets"),
+                  alert=game.get("alert"), league=game["league"],
+                  regional=flags.get("regional", False), saved_stream=flags.get("saved_stream", False))
     connection.send_result(msg["id"], detail)

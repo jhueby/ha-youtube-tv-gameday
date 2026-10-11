@@ -52,11 +52,13 @@
           "leagues": "Leagues to show",
           "power_entity": "Turn this media player on before tuning (optional)",
           "alert_scope": "Close-game alerts for",
-          "alert_notify": "Send alerts to"
+          "alert_notify": "Send alerts to",
+          "local_teams": "Local teams (your CBS/FOX stations always carry them)"
         },
         "data_description": {
           "alert_scope": "Alerts fire once per game when it gets close late, goes to overtime, or a ranked team is upset-threatened. They always fire the youtube_tv_gameday_alert event; pick who gets a notification.",
-          "alert_notify": "A notify service. Mobile-app notifications get a Watch button that tunes the TV."
+          "alert_notify": "A notify service. Mobile-app notifications get a Watch button that tunes the TV.",
+          "local_teams": "NFL Sunday afternoon games are regional: when several are on CBS or FOX at once, your station carries only one. Games for these teams are treated as local; the others are marked regional."
         }
       },
       "lineup": {
@@ -125,6 +127,34 @@
         "label": {
           "name": "Label",
           "description": "Optional game label stored on the Now on sensor."
+        },
+        "config_entry_id": {
+          "name": "TV",
+          "description": "Which TV (if you set up more than one)."
+        }
+      }
+    },
+    "tune_game": {
+      "name": "Put a game on",
+      "description": "Tune the TV to a game: a stream you saved for it, else its channel, else its streaming app.",
+      "fields": {
+        "game_id": {
+          "name": "Game",
+          "description": "ESPN game id (from the scoreboard)."
+        },
+        "config_entry_id": {
+          "name": "TV",
+          "description": "Which TV (if you set up more than one)."
+        }
+      }
+    },
+    "remember_game": {
+      "name": "Remember what's on for a game",
+      "description": "Save the stream the TV is playing right now as this game's stream for today (e.g. an NFL Sunday Ticket game).",
+      "fields": {
+        "game_id": {
+          "name": "Game",
+          "description": "ESPN game id (from the scoreboard)."
         },
         "config_entry_id": {
           "name": "TV",

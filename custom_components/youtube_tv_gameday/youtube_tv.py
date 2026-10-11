@@ -141,6 +141,41 @@ async def launch_app(session: aiohttp.ClientSession, app_url: str, dial_name: st
     raise TuneError(f"the TV refused to open {dial_name}")
 
 
+async def now_playing(session: aiohttp.ClientSession, app_url: str) -> str | None:
+    """Video id the TV's YouTube TV app is playing (a channel's live id, or a game stream such as
+    NFL Sunday Ticket), read from the lounge state a newly connected remote receives. None if idle."""
+    try:
+        async with session.get(app_endpoint(app_url), timeout=TIMEOUT) as resp:
+            dial = await resp.text()
+    except (aiohttp.ClientError, asyncio.TimeoutError) as err:
+        raise TuneError(f"TV not reachable ({err})") from err
+    m = re.search(r"<screenId>([^<]+)</screenId>", dial)
+    if "<state>running</state>" not in dial or not m:
+        return None
+    async with session.post(f"{LOUNGE}/pairing/get_lounge_token_batch",
+                            data={"screen_ids": m.group(1)}, timeout=TIMEOUT) as resp:
+        token = (await resp.json(content_type=None))["screens"][0]["loungeToken"]
+    common = {"device": "REMOTE_CONTROL", "app": "youtube-desktop", "name": "Home Assistant",
+              "id": str(uuid.uuid4()), "loungeIdToken": token, "VER": "8", "v": "2",
+              "theme": "up", "mdx-version": "3", "CVER": "1", "zx": "x"}
+    async with session.post(f"{LOUNGE}/bc/bind?" + urlencode({**common, "RID": "1"}),
+                            data={"count": "0"}, timeout=TIMEOUT) as resp:
+        text = await resp.text()
+    sid = re.search(r'"c","([^"]+)"', text)
+    gsession = re.search(r'"S","([^"]+)"', text)
+    if sid and gsession:   # short long-poll: the screen pushes its current playlist to the new remote
+        query = {**common, "SID": sid.group(1), "gsessionid": gsession.group(1), "RID": "rpc", "AID": "3",
+                 "CI": "0", "TYPE": "xmlhttp"}
+        try:
+            async with session.get(f"{LOUNGE}/bc/bind?" + urlencode(query),
+                                   timeout=aiohttp.ClientTimeout(total=8)) as resp:
+                text += await resp.text()
+        except (aiohttp.ClientError, asyncio.TimeoutError):
+            pass   # the long-poll is cut off by the timeout; whatever arrived is in `text`
+    ids = re.findall(r'"videoId":"([A-Za-z0-9_-]{11})"', text)
+    return ids[-1] if ids else None
+
+
 async def tune(session: aiohttp.ClientSession, app_url: str, video_id: str) -> None:
     """Bring YouTube TV to the front and play a live channel. Raises TuneError."""
     endpoint = app_endpoint(app_url)

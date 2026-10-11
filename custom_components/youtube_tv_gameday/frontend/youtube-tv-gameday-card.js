@@ -40,9 +40,11 @@ class YouTubeTvGamedayCard extends HTMLElement {
     this._root.addEventListener("click", (ev) => {
       if (this._longFired) { this._longFired = false; ev.preventDefault(); return; }  // long-press already handled
       if (ev.target.id === "sheet" || ev.target.closest("[data-close]")) { this._closeDetail(); return; }
-      const el = ev.target.closest("[data-nav],[data-info],[data-app],[data-ch],[data-filter],[data-mine]");
+      const el = ev.target.closest("[data-nav],[data-info],[data-remember],[data-game],[data-app],[data-ch],[data-filter],[data-mine]");
       if (!el) return;
       if (el.dataset.nav) this._navigate(el.dataset.nav);
+      else if (el.dataset.remember) this._remember(el.dataset.remember, el.dataset.label, el);
+      else if (el.dataset.game && !el.dataset.info) this._tuneGame(el.dataset.game, el.dataset.label, el);
       else if (el.dataset.app) this._openApp(el.dataset.app, el.dataset.label, el);
       else if (el.dataset.info) this._openDetail(el.dataset.info);
       else if (el.dataset.filter) { this._filter = el.dataset.filter; this._save(); this._render(); }
@@ -105,6 +107,7 @@ class YouTubeTvGamedayCard extends HTMLElement {
       this._data = await this._hass.connection.sendMessagePromise(msg);
       this._error = null;
       if (this._data.now) this._now = this._data.now;
+      if (this._data.now_label !== undefined) this._nowLabel = this._data.now_label;
       if (!this._config.favorites) this._favs = (this._data.favorites || []).map((f) => f.toLowerCase());
       this._short = Object.fromEntries((this._data.quick || []).map((q) => [q.channel, q.label]));
     } catch (e) {
@@ -135,6 +138,56 @@ class YouTubeTvGamedayCard extends HTMLElement {
     } finally {
       this._busy = false;
       el?.classList.remove("tapped");
+    }
+  }
+
+  _game(gid) { return (this._data?.games || []).find((g) => g.id === gid); }
+
+  async _tuneGame(gid, label, el) {
+    if (this._busy) return;
+    const g = this._game(gid) || {};
+    const what = g.saved_stream ? "your saved stream" : g.channel || g.app || "the game";
+    this._busy = true;
+    el?.classList.add("tapped");
+    this._toast(`${this._data?.tv === "off" ? "Turning on the TV and putting on" : "Putting on"} <b>${esc(label || "")}</b> · ${esc(what)}…`, "busy");
+    try {
+      const data = { game_id: gid };
+      if (this._config.entry_id) data.config_entry_id = this._config.entry_id;
+      await this._hass.callService("youtube_tv_gameday", "tune_game", data);
+      this._now = g.saved_stream ? "saved stream" : g.channel || g.app;
+      this._nowLabel = label;
+      if (this._data) this._data.tv = "on";
+      const tip = g.regional && !g.saved_stream
+        ? `<br><span class="soft">Regional game — if your ${esc(g.channel)} shows a different one, put it on via Sunday Ticket and tap 📌 in its details.</span>` : "";
+      this._toast(`📺 <b>${esc(label || "")}</b> · ${esc(what)}${tip}`, g.regional && !g.saved_stream ? "warn" : "ok");
+      this._render();
+    } catch (e) {
+      this._toast(`Couldn't put it on: ${esc(e.message || e)}`, "err");
+    } finally {
+      this._busy = false;
+      el?.classList.remove("tapped");
+    }
+  }
+
+  async _remember(gid, label, el) {
+    if (this._busy) return;
+    this._busy = true;
+    this._toast(`Checking what's on the TV…`, "busy");
+    try {
+      const data = { game_id: gid };
+      if (this._config.entry_id) data.config_entry_id = this._config.entry_id;
+      await this._hass.callService("youtube_tv_gameday", "remember_game", data);
+      const g = this._game(gid);
+      if (g) g.saved_stream = true;
+      this._nowLabel = label;
+      this._now = "saved stream";
+      this._toast(`📌 Saved — tapping <b>${esc(label || "this game")}</b> today goes straight to what's on now`, "ok");
+      this._render();
+      if (this._detailId) this._loadDetail();
+    } catch (e) {
+      this._toast(`Couldn't save it: ${esc(e.message || e)}`, "err");
+    } finally {
+      this._busy = false;
     }
   }
 
@@ -208,7 +261,7 @@ class YouTubeTvGamedayCard extends HTMLElement {
       <header>
         <div class="brand"><span class="ball">●</span> GAME DAY <span class="date">${esc(today)}</span></div>
         <div class="meta">
-          ${this._now ? `<span class="nowpill">📺 On TV: <b>${esc(this._now)}</b></span>` : ""}
+          ${this._now ? `<span class="nowpill">📺 On TV: <b>${esc(this._now === "saved stream" && this._nowLabel ? this._nowLabel : this._now)}</b></span>` : ""}
           <span class="upd">${this._error ? `<span class="errtxt">⚠ ${esc(this._error)}</span>` : `Updated ${esc(upd)}`}</span>
         </div>
       </header>
@@ -245,13 +298,13 @@ class YouTubeTvGamedayCard extends HTMLElement {
       const st = g.state === "in" ? `<span class="livetag">LIVE</span> ${esc(g.detail)}`
         : g.state === "pre" ? (g.tbd ? "TBD" : esc(this._time(g.start)))
         : esc(g.detail || "Final");
-      const tappable = (g.channel || g.app) && g.state !== "post";
+      const tappable = (g.channel || g.app || g.saved_stream) && g.state !== "post";
       const row = (t) => `<div class="mrow ${g.state === "post" && t.winner === false ? "lose" : ""}">
         ${t.logo ? `<img src="${esc(t.logo.replace("/500/", "/500-dark/"))}" data-light="${esc(t.logo)}"
           onerror="if(this.dataset.light&&this.src!==this.dataset.light){this.src=this.dataset.light}" alt="">` : ""}
         <span class="mabbr">${esc(t.abbr || t.name)}</span><span class="msc">${g.state === "pre" ? "" : esc(t.score ?? "")}</span></div>`;
       return `<div class="mini tile ${g.state} ${tappable ? "tap" : ""} ${g.state === "in" && g.alert ? "alert " + esc(g.alert.kind) : ""}"
-          data-gid="${esc(g.id)}" ${tappable ? `${g.channel ? `data-ch="${esc(g.channel)}"` : `data-app="${esc(g.app)}"`} data-label="${esc((a.abbr || "") + " @ " + (h.abbr || ""))}"` : ""}
+          data-gid="${esc(g.id)}" ${tappable ? `data-game="${esc(g.id)}" data-label="${esc((a.abbr || "") + " @ " + (h.abbr || ""))}"` : ""}
           style="--c1:${hex(a.color, "#3a4a63")};--c2:${hex(h.color, "#63503a")}">
         <div class="mtop"><span class="lg">${esc(TAG[g.league] || g.league)}</span><span class="st">${st}</span></div>
         ${row(a)}${row(h)}
@@ -280,18 +333,21 @@ class YouTubeTvGamedayCard extends HTMLElement {
 
   _tile(g) {
     const [a, h] = g.teams.length === 2 ? g.teams : [g.teams[0] || {}, g.teams[1] || {}];
-    const onTv = g.channel && g.channel === this._now && g.state !== "post";
     const label = `${a.abbr || a.name} @ ${h.abbr || h.name}`;
+    // highlight the game that was put on (not every game sharing that channel)
+    const onTv = g.state !== "post" && (this._nowLabel ? this._nowLabel === label : !!g.channel && g.channel === this._now);
     let status;
     if (g.state === "in") status = `<span class="livetag">LIVE</span> ${esc(g.detail)}`;
     else if (g.state === "pre") status = g.tbd ? "TBD" : esc(this._time(g.start));
     else status = esc(g.detail || "Final");
-    const tappable = (g.channel || g.app) && g.state !== "post";
-    const net = g.channel ? `<span class="net ${onTv ? "on" : ""}">${onTv ? "📺 " : ""}${esc((this._short || {})[g.channel] || g.channel)}</span>`
+    const tappable = (g.channel || g.app || g.saved_stream) && g.state !== "post";
+    const short = (this._short || {})[g.channel] || g.channel;
+    const net = g.saved_stream ? `<span class="net saved ${onTv ? "on" : ""}">📌 Saved stream</span>`
+      : g.channel ? `<span class="net ${onTv ? "on" : ""} ${g.regional ? "regional" : ""}">${onTv ? "📺 " : ""}${esc(short)}${g.regional ? " · regional" : ""}</span>`
       : g.app ? `<span class="net app">▶ ${esc(g.app)}</span>`
       : `<span class="net none">${esc((g.nets || [])[0] || "TV TBA")}</span>`;
     const alert = g.state === "in" && g.alert;
-    const target = g.channel ? `data-ch="${esc(g.channel)}"` : g.app ? `data-app="${esc(g.app)}"` : "";
+    const target = `data-game="${esc(g.id)}"`;
     return `
       <div class="tile ${g.state} ${tappable ? "tap" : "dim"} ${onTv ? "ontv" : ""} ${this._isFav(g) ? "fav" : ""} ${alert ? "alert " + esc(alert.kind) : ""}"
            data-gid="${esc(g.id)}" ${tappable ? `${target} data-label="${esc(label)}"` : ""}
@@ -355,11 +411,17 @@ class YouTubeTvGamedayCard extends HTMLElement {
         <td class="tot">${esc(t.score ?? "")}</td></tr>`).join("")}</table>` : "";
     const ch = d.channel;
     const lbl = esc((a.abbr || "") + " @ " + (h.abbr || ""));
-    const watch = ch && d.state !== "post"
-      ? `<button class="watch" data-ch="${esc(ch)}" data-label="${lbl}">📺 Watch on ${esc(ch)}</button>`
-      : d.app && d.state !== "post"
-      ? `<button class="watch app" data-app="${esc(d.app)}" data-label="${lbl}">▶ Open ${esc(d.app)}</button>`
-      : `<span class="nowhere">${esc(d.state === "post" ? "Final" : (d.nets || [])[0] ? "On " + d.nets[0] + " (not in your lineup)" : "TV not announced")}</span>`;
+    const open = d.state !== "post";
+    const gid = esc(d.game_id || this._detailId);
+    const watch = (open && d.saved_stream
+      ? `<button class="watch" data-game="${gid}" data-label="${lbl}">📌 Watch saved stream</button>`
+      : open && ch
+      ? `<button class="watch" data-game="${gid}" data-label="${lbl}">📺 Watch on ${esc(ch)}${d.regional ? " (regional)" : ""}</button>`
+      : open && d.app
+      ? `<button class="watch app" data-game="${gid}" data-label="${lbl}">▶ Open ${esc(d.app)}</button>`
+      : `<span class="nowhere">${esc(d.state === "post" ? "Final" : (d.nets || [])[0] ? "On " + d.nets[0] + " (not in your lineup)" : "TV not announced")}</span>`)
+      + (open ? `<button class="remember" data-remember="${gid}" data-label="${lbl}">📌 It's on the TV now — remember for this game</button>` : "")
+      + (open && d.regional && !d.saved_stream ? `<div class="regionote">Regional game: your local ${esc(ch)} may be showing a different one. If it's on NFL Sunday Ticket, put it on there, then tap 📌.</div>` : "");
     const chips = [d.odds?.line && `Line ${d.odds.line}${d.odds.total ? " · O/U " + d.odds.total : ""}`, d.venue, d.weather,
       d.attendance && `${Number(d.attendance).toLocaleString()} fans`].filter(Boolean);
     box.innerHTML = `<div class="sheet" style="--c1:${hex(a.color, "#3a4a63")};--c2:${hex(h.color, "#63503a")}">
@@ -452,6 +514,13 @@ const CSS = `
   .net { background:#233046; color:#dfe8f5; border-radius:8px; padding:4px 10px; font-weight:800; font-size:13px; letter-spacing:.04em; }
   .net.on { background:#2e7d4f; color:#fff; }
   .net.app { background:#3b2a5c; color:#e6dcff; }
+  .net.regional { background:#4a3a14; color:#ffd98a; }
+  .net.saved { background:#14404a; color:#bff3ff; }
+  .remember { margin-left:10px; background:transparent; border:1px solid #3a4a63; color:#c9d3e0; border-radius:14px;
+    padding:11px 14px; font-size:14px; font-weight:700; cursor:pointer; }
+  .regionote { flex-basis:100%; text-align:center; color:#ffd98a; font-size:13px; margin-top:8px; }
+  .dactions { flex-wrap:wrap; gap:8px; }
+  .toast.warn { background:#ffe6a8; }
   .watch.app { background:#4b3478; border-color:#9b7bff; }
   .net.none { background:transparent; color:#6f7d90; font-weight:600; padding-left:0; }
   .sit { color:#c9d3e0; font-size:13px; display:flex; align-items:center; gap:8px; text-align:right; }

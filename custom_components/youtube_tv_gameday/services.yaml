@@ -34,3 +34,23 @@ scoreboard:
       selector:
         config_entry:
           integration: youtube_tv_gameday
+tune_game:
+  fields:
+    game_id:
+      required: true
+      selector:
+        text:
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: youtube_tv_gameday
+remember_game:
+  fields:
+    game_id:
+      required: true
+      selector:
+        text:
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: youtube_tv_gameday

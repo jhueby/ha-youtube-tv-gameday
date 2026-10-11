@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 DOMAIN = "youtube_tv_gameday"
-VERSION = "0.3.2"
+VERSION = "0.4.0"
 
 CONF_APP_URL = "app_url"
 CONF_LINEUP = "lineup"            # {channel name as shown in YouTube TV: live watch id}
@@ -10,6 +10,7 @@ CONF_LOCALS = "locals"            # {"ABC": "<lineup channel name>", ...}
 CONF_FAVORITES = "favorites"      # ["Guardians", "Cavaliers"]
 CONF_LEAGUES = "leagues"          # keys of LEAGUES
 CONF_POWER_ENTITY = "power_entity"
+CONF_LOCAL_TEAMS = "local_teams"      # teams your local CBS/FOX always carry (NFL regional coverage)
 CONF_ALERT_SCOPE = "alert_scope"    # which games alert: favorites / ranked / my_channels / all
 CONF_ALERT_NOTIFY = "alert_notify"  # notify service (e.g. notify.mobile_app_phone), optional
 

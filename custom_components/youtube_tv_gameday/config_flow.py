@@ -14,7 +14,7 @@ from homeassistant.helpers.selector import (EntitySelector, EntitySelectorConfig
                                             SelectSelector, SelectSelectorConfig, SelectSelectorMode,
                                             TextSelector, TextSelectorConfig)
 
-from .const import (ALERT_SCOPES, CONF_ALERT_NOTIFY, CONF_ALERT_SCOPE, CONF_APP_URL, CONF_FAVORITES,
+from .const import (ALERT_SCOPES, CONF_ALERT_NOTIFY, CONF_ALERT_SCOPE, CONF_APP_URL, CONF_FAVORITES, CONF_LOCAL_TEAMS,
                     CONF_LEAGUES, CONF_LINEUP, CONF_LOCALS, CONF_POWER_ENTITY, DEFAULT_ALERT_SCOPE,
                     DEFAULT_LEAGUES, DOMAIN, LEAGUES, LOCAL_NETWORKS)
 from .espn import norm
@@ -165,6 +165,7 @@ class GameDayOptionsFlow(OptionsFlow):
             notify = user_input.get(CONF_ALERT_NOTIFY)
             return self._save(**{CONF_FAVORITES: favs, CONF_LEAGUES: user_input[CONF_LEAGUES],
                                  CONF_POWER_ENTITY: user_input.get(CONF_POWER_ENTITY),
+                                 CONF_LOCAL_TEAMS: [t.strip() for t in user_input.get(CONF_LOCAL_TEAMS, "").split(",") if t.strip()],
                                  CONF_ALERT_SCOPE: user_input.get(CONF_ALERT_SCOPE, []),
                                  CONF_ALERT_NOTIFY: None if notify in (None, NONE) else notify})
         league_opts = [SelectOptionDict(value=k, label=v[0]) for k, v in LEAGUES.items()]
@@ -173,6 +174,7 @@ class GameDayOptionsFlow(OptionsFlow):
             for svc in sorted(self.hass.services.async_services().get("notify", {}))]
         schema = vol.Schema({
             vol.Optional(CONF_FAVORITES, default=", ".join(opts.get(CONF_FAVORITES, []))): str,
+            vol.Optional(CONF_LOCAL_TEAMS, default=", ".join(opts.get(CONF_LOCAL_TEAMS, []))): str,
             vol.Required(CONF_LEAGUES, default=opts.get(CONF_LEAGUES, DEFAULT_LEAGUES)):
                 SelectSelector(SelectSelectorConfig(options=league_opts, multiple=True)),
             vol.Optional(CONF_POWER_ENTITY, description={"suggested_value": opts.get(CONF_POWER_ENTITY)}):
