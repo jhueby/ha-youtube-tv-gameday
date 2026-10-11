@@ -75,6 +75,15 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
             raise HomeAssistantError(f"Couldn't tune {channel}: {err}") from err
         return {"channel": channel}
 
+    async def open_app(call: ServiceCall) -> ServiceResponse:
+        coord = _coordinator(hass, call.data.get(ATTR_ENTRY))
+        app = call.data["app"]
+        try:
+            await coord.async_open_app(app, call.data.get("label"))
+        except TuneError as err:
+            raise HomeAssistantError(f"Couldn't open {app}: {err}") from err
+        return {"app": app}
+
     async def scoreboard(call: ServiceCall) -> ServiceResponse:
         coord = _coordinator(hass, call.data.get(ATTR_ENTRY))
         await coord.async_fresh()
@@ -83,6 +92,11 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     hass.services.async_register(
         DOMAIN, SERVICE_TUNE, tune_channel,
         schema=vol.Schema({vol.Required("channel"): cv.string, vol.Optional("label"): cv.string,
+                           vol.Optional(ATTR_ENTRY): cv.string}),
+        supports_response=SupportsResponse.OPTIONAL)
+    hass.services.async_register(
+        DOMAIN, "open_app", open_app,
+        schema=vol.Schema({vol.Required("app"): cv.string, vol.Optional("label"): cv.string,
                            vol.Optional(ATTR_ENTRY): cv.string}),
         supports_response=SupportsResponse.OPTIONAL)
     hass.services.async_register(
@@ -141,5 +155,6 @@ async def ws_game(hass: HomeAssistant, connection: websocket_api.ActiveConnectio
     except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as err:
         connection.send_error(msg["id"], "unavailable", f"ESPN summary failed: {err}")
         return
-    detail.update(channel=game.get("channel"), nets=game.get("nets"), alert=game.get("alert"), league=game["league"])
+    detail.update(channel=game.get("channel"), app=game.get("app"), nets=game.get("nets"),
+                  alert=game.get("alert"), league=game["league"])
     connection.send_result(msg["id"], detail)

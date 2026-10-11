@@ -40,9 +40,10 @@ class YouTubeTvGamedayCard extends HTMLElement {
     this._root.addEventListener("click", (ev) => {
       if (this._longFired) { this._longFired = false; ev.preventDefault(); return; }  // long-press already handled
       if (ev.target.id === "sheet" || ev.target.closest("[data-close]")) { this._closeDetail(); return; }
-      const el = ev.target.closest("[data-nav],[data-info],[data-ch],[data-filter],[data-mine]");
+      const el = ev.target.closest("[data-nav],[data-info],[data-app],[data-ch],[data-filter],[data-mine]");
       if (!el) return;
       if (el.dataset.nav) this._navigate(el.dataset.nav);
+      else if (el.dataset.app) this._openApp(el.dataset.app, el.dataset.label, el);
       else if (el.dataset.info) this._openDetail(el.dataset.info);
       else if (el.dataset.filter) { this._filter = el.dataset.filter; this._save(); this._render(); }
       else if (el.dataset.mine !== undefined) { this._mine = !this._mine; this._save(); this._render(); }
@@ -137,6 +138,28 @@ class YouTubeTvGamedayCard extends HTMLElement {
     }
   }
 
+  async _openApp(app, label, el) {
+    if (this._busy) return;
+    this._busy = true;
+    el?.classList.add("tapped");
+    this._toast(`${this._data?.tv === "off" ? "Turning on the TV and opening" : "Opening"} <b>${esc(app)}</b>…`, "busy");
+    try {
+      const data = { app };
+      if (label) data.label = label;
+      if (this._config.entry_id) data.config_entry_id = this._config.entry_id;
+      await this._hass.callService("youtube_tv_gameday", "open_app", data);
+      this._now = app;
+      if (this._data) this._data.tv = "on";
+      this._toast(`▶ <b>${esc(app)}</b> is open${label ? ` — pick <b>${esc(label)}</b> from its Live / Sports row` : ""}`, "ok");
+      this._render();
+    } catch (e) {
+      this._toast(`Couldn't open ${esc(app)}: ${esc(e.message || e)}`, "err");
+    } finally {
+      this._busy = false;
+      el?.classList.remove("tapped");
+    }
+  }
+
   _toast(html, kind) {
     const t = this._root.getElementById("toast");
     t.innerHTML = html;
@@ -155,7 +178,7 @@ class YouTubeTvGamedayCard extends HTMLElement {
     if (this._config.mode === "strip") { this._renderStrip(main); return; }
     const d = this._data;
     const games = (d?.games || []).filter((g) =>
-      (this._filter === "All" || g.league === this._filter) && (!this._mine || g.channel));
+      (this._filter === "All" || g.league === this._filter) && (!this._mine || g.channel || g.app));
     const leagues = ["All", ...new Set((d?.games || []).map((g) => g.league))];
     const byFav = (a, b) => (this._isFav(b) - this._isFav(a));
     const live = games.filter((g) => g.state === "in")
@@ -175,7 +198,7 @@ class YouTubeTvGamedayCard extends HTMLElement {
       </header>
       <nav class="chips">
         ${leagues.map((l) => `<button class="chip ${l === this._filter ? "on" : ""}" data-filter="${esc(l)}">${esc(l)}</button>`).join("")}
-        <button class="chip mine ${this._mine ? "on" : ""}" data-mine>On my channels</button>
+        <button class="chip mine ${this._mine ? "on" : ""}" data-mine>Watchable</button>
       </nav>
       <div class="scroll">
         ${!d && !this._error ? `<div class="empty">Loading today's games…</div>` : ""}
@@ -206,18 +229,18 @@ class YouTubeTvGamedayCard extends HTMLElement {
       const st = g.state === "in" ? `<span class="livetag">LIVE</span> ${esc(g.detail)}`
         : g.state === "pre" ? (g.tbd ? "TBD" : esc(new Date(g.start).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })))
         : esc(g.detail || "Final");
-      const tappable = g.channel && g.state !== "post";
+      const tappable = (g.channel || g.app) && g.state !== "post";
       const row = (t) => `<div class="mrow ${g.state === "post" && t.winner === false ? "lose" : ""}">
         ${t.logo ? `<img src="${esc(t.logo.replace("/500/", "/500-dark/"))}" data-light="${esc(t.logo)}"
           onerror="if(this.dataset.light&&this.src!==this.dataset.light){this.src=this.dataset.light}" alt="">` : ""}
         <span class="mabbr">${esc(t.abbr || t.name)}</span><span class="msc">${g.state === "pre" ? "" : esc(t.score ?? "")}</span></div>`;
       return `<div class="mini tile ${g.state} ${tappable ? "tap" : ""} ${g.state === "in" && g.alert ? "alert " + esc(g.alert.kind) : ""}"
-          data-gid="${esc(g.id)}" ${tappable ? `data-ch="${esc(g.channel)}" data-label="${esc((a.abbr || "") + " @ " + (h.abbr || ""))}"` : ""}
+          data-gid="${esc(g.id)}" ${tappable ? `${g.channel ? `data-ch="${esc(g.channel)}"` : `data-app="${esc(g.app)}"`} data-label="${esc((a.abbr || "") + " @ " + (h.abbr || ""))}"` : ""}
           style="--c1:${hex(a.color, "#3a4a63")};--c2:${hex(h.color, "#63503a")}">
         <div class="mtop"><span class="lg">${esc(TAG[g.league] || g.league)}</span><span class="st">${st}</span></div>
         ${row(a)}${row(h)}
         <div class="mfoot">${g.state === "in" && g.alert ? `<span class="malert">${esc(g.alert.text)}</span>`
-          : `<span class="net ${g.channel ? "" : "none"}">${esc(g.channel ? ((this._short || {})[g.channel] || g.channel) : ((g.nets || [])[0] || ""))}</span>`}</div>
+          : `<span class="net ${g.channel ? "" : g.app ? "app" : "none"}">${esc(g.channel ? ((this._short || {})[g.channel] || g.channel) : g.app ? "▶ " + g.app : ((g.nets || [])[0] || ""))}</span>`}</div>
       </div>`;
     };
     main.innerHTML = `
@@ -247,13 +270,15 @@ class YouTubeTvGamedayCard extends HTMLElement {
     if (g.state === "in") status = `<span class="livetag">LIVE</span> ${esc(g.detail)}`;
     else if (g.state === "pre") status = g.tbd ? "TBD" : esc(new Date(g.start).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }));
     else status = esc(g.detail || "Final");
-    const tappable = g.channel && g.state !== "post";
+    const tappable = (g.channel || g.app) && g.state !== "post";
     const net = g.channel ? `<span class="net ${onTv ? "on" : ""}">${onTv ? "📺 " : ""}${esc((this._short || {})[g.channel] || g.channel)}</span>`
+      : g.app ? `<span class="net app">▶ ${esc(g.app)}</span>`
       : `<span class="net none">${esc((g.nets || [])[0] || "TV TBA")}</span>`;
     const alert = g.state === "in" && g.alert;
+    const target = g.channel ? `data-ch="${esc(g.channel)}"` : g.app ? `data-app="${esc(g.app)}"` : "";
     return `
       <div class="tile ${g.state} ${tappable ? "tap" : "dim"} ${onTv ? "ontv" : ""} ${this._isFav(g) ? "fav" : ""} ${alert ? "alert " + esc(alert.kind) : ""}"
-           data-gid="${esc(g.id)}" ${tappable ? `data-ch="${esc(g.channel)}" data-label="${esc(label)}"` : ""}
+           data-gid="${esc(g.id)}" ${tappable ? `${target} data-label="${esc(label)}"` : ""}
            style="--c1:${hex(a.color, "#3a4a63")};--c2:${hex(h.color, "#63503a")}">
         <div class="top"><span class="lg">${esc(TAG[g.league] || g.league)}${this._isFav(g) ? " ★" : ""}</span>
           <span class="st">${status}<button class="info" data-info="${esc(g.id)}" aria-label="Game details">i</button></span></div>
@@ -313,8 +338,11 @@ class YouTubeTvGamedayCard extends HTMLElement {
       ${[a, h].map((t) => `<tr><td>${esc(t.abbr)}</td>${Array.from({ length: periods }, (_, i) => `<td>${esc((t.periods || [])[i] ?? "")}</td>`).join("")}
         <td class="tot">${esc(t.score ?? "")}</td></tr>`).join("")}</table>` : "";
     const ch = d.channel;
+    const lbl = esc((a.abbr || "") + " @ " + (h.abbr || ""));
     const watch = ch && d.state !== "post"
-      ? `<button class="watch" data-ch="${esc(ch)}" data-label="${esc((a.abbr || "") + " @ " + (h.abbr || ""))}">📺 Watch on ${esc(ch)}</button>`
+      ? `<button class="watch" data-ch="${esc(ch)}" data-label="${lbl}">📺 Watch on ${esc(ch)}</button>`
+      : d.app && d.state !== "post"
+      ? `<button class="watch app" data-app="${esc(d.app)}" data-label="${lbl}">▶ Open ${esc(d.app)}</button>`
       : `<span class="nowhere">${esc(d.state === "post" ? "Final" : (d.nets || [])[0] ? "On " + d.nets[0] + " (not in your lineup)" : "TV not announced")}</span>`;
     const chips = [d.odds?.line && `Line ${d.odds.line}${d.odds.total ? " · O/U " + d.odds.total : ""}`, d.venue, d.weather,
       d.attendance && `${Number(d.attendance).toLocaleString()} fans`].filter(Boolean);
@@ -407,6 +435,8 @@ const CSS = `
   .foot { display:flex; justify-content:space-between; align-items:center; margin-top:8px; gap:8px; min-height:26px; }
   .net { background:#233046; color:#dfe8f5; border-radius:8px; padding:4px 10px; font-weight:800; font-size:13px; letter-spacing:.04em; }
   .net.on { background:#2e7d4f; color:#fff; }
+  .net.app { background:#3b2a5c; color:#e6dcff; }
+  .watch.app { background:#4b3478; border-color:#9b7bff; }
   .net.none { background:transparent; color:#6f7d90; font-weight:600; padding-left:0; }
   .sit { color:#c9d3e0; font-size:13px; display:flex; align-items:center; gap:8px; text-align:right; }
   .sit.rz { color:#ff8a80; font-weight:700; }

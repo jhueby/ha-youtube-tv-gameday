@@ -13,6 +13,21 @@ tune_channel:
       selector:
         config_entry:
           integration: youtube_tv_gameday
+open_app:
+  fields:
+    app:
+      required: true
+      example: Peacock
+      selector:
+        select:
+          options: [Peacock, Paramount+, Prime Video, ESPN+, Apple TV, Netflix, Max]
+    label:
+      selector:
+        text:
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: youtube_tv_gameday
 scoreboard:
   fields:
     config_entry_id:

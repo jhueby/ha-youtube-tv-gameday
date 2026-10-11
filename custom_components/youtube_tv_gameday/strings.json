@@ -113,6 +113,24 @@
           "description": "Which TV (if you set up more than one)."
         }
       }
+    },
+    "open_app": {
+      "name": "Open streaming app",
+      "description": "Turn the TV on (if a power entity is set) and open a streaming app such as Peacock, for games that aren't on YouTube TV.",
+      "fields": {
+        "app": {
+          "name": "App",
+          "description": "Streaming service to open."
+        },
+        "label": {
+          "name": "Label",
+          "description": "Optional game label stored on the Now on sensor."
+        },
+        "config_entry_id": {
+          "name": "TV",
+          "description": "Which TV (if you set up more than one)."
+        }
+      }
     }
   },
   "selector": {

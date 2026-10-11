@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 DOMAIN = "youtube_tv_gameday"
-VERSION = "0.2.1"
+VERSION = "0.3.0"
 
 CONF_APP_URL = "app_url"
 CONF_LINEUP = "lineup"            # {channel name as shown in YouTube TV: live watch id}
@@ -73,6 +73,18 @@ NETWORKS: dict[str, tuple[str, list[str]]] = {
     "Galavision": ("Galavision", ["galavision"]),
     "CNBC": ("CNBC", ["cnbc"]),
 }
+# Streaming services: games only on these can't be tuned, but we can open the app on the TV.
+# name: ([normalised ESPN broadcast names], [DIAL app names to try])
+STREAMING: dict[str, tuple[list[str], list[str]]] = {
+    "Peacock": (["peacock"], ["Peacock"]),
+    "Paramount+": (["paramount+", "paramount plus"], ["Paramount", "ParamountPlus", "CBSAllAccess"]),
+    "Prime Video": (["prime video", "amazon prime video", "amazon"], ["AmazonInstantVideo", "PrimeVideo"]),
+    "ESPN+": (["espn+"], ["ESPN"]),
+    "Apple TV": (["apple tv", "apple tv+", "mls season pass"], ["AppleTV", "AppleTVPlus"]),
+    "Netflix": (["netflix"], ["Netflix"]),
+    "Max": (["max", "hbo max"], ["Max", "HBOMax"]),
+}
+
 # Over-the-air networks: the lineup shows the local station ("ABC 7"), so the user maps them.
 LOCAL_NETWORKS = ["ABC", "CBS", "NBC", "FOX", "CW", "Telemundo", "Univision"]
 # When a game is on several channels the user has, prefer this order (English national first).

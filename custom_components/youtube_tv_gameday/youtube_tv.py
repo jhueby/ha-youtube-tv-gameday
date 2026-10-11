@@ -103,6 +103,44 @@ async def discover(session: aiohttp.ClientSession, wait: float = 4.0) -> list[Di
     return list(unique.values())
 
 
+async def find_apps(session: aiohttp.ClientSession, app_url: str, candidates: dict[str, list[str]]) -> dict[str, str]:
+    """Which streaming apps the TV advertises over DIAL: {service: DIAL app name}."""
+    async def first_known(service: str, names: list[str]) -> tuple[str, str | None]:
+        for name in names:
+            try:
+                async with session.get(app_url.rstrip("/") + "/" + name, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                    if resp.status == 200 and f"<name>{name}</name>" in await resp.text():
+                        return service, name
+            except (aiohttp.ClientError, asyncio.TimeoutError):
+                continue
+        return service, None
+    found = await asyncio.gather(*(first_known(s, n) for s, n in candidates.items()))
+    return {service: name for service, name in found if name}
+
+
+async def launch_app(session: aiohttp.ClientSession, app_url: str, dial_name: str) -> None:
+    """Open a streaming app on the TV (DIAL launch). Raises TuneError if it doesn't start."""
+    endpoint = app_url.rstrip("/") + "/" + dial_name
+    for attempt in range(8):                     # the TV may still be waking up
+        try:
+            async with session.get(endpoint, timeout=aiohttp.ClientTimeout(total=5)):
+                break
+        except (aiohttp.ClientError, asyncio.TimeoutError) as err:
+            if attempt == 7:
+                raise TuneError(f"TV not reachable ({err})") from err
+            await asyncio.sleep(4)
+    # TVs differ in which Origin they accept for a DIAL launch; try none first, then common ones
+    for origin in (None, "https://tv.youtube.com", f"package:{dial_name.lower()}"):
+        headers = {"Content-Type": "text/plain; charset=utf-8"} | ({"Origin": origin} if origin else {})
+        try:
+            async with session.post(endpoint, data=b"", headers=headers, timeout=TIMEOUT) as resp:
+                if resp.status in (200, 201):
+                    return
+        except (aiohttp.ClientError, asyncio.TimeoutError):
+            continue
+    raise TuneError(f"the TV refused to open {dial_name}")
+
+
 async def tune(session: aiohttp.ClientSession, app_url: str, video_id: str) -> None:
     """Bring YouTube TV to the front and play a live channel. Raises TuneError."""
     endpoint = app_endpoint(app_url)

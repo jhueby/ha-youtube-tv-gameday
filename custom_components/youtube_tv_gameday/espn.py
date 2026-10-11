@@ -10,7 +10,7 @@ from typing import Any
 
 import aiohttp
 
-from .const import ESPN, LEAGUES, LOCAL_NETWORKS, NETWORKS, PREFERENCE
+from .const import ESPN, LEAGUES, LOCAL_NETWORKS, NETWORKS, PREFERENCE, STREAMING
 
 _LOGGER = logging.getLogger(__name__)
 _NOT_TV = {"eradm", "radio", "espn radio", "siriusxm", "sirius xm"}
@@ -36,10 +36,11 @@ def network_brand(name: str) -> str | None:
 
 
 class ChannelMap:
-    """Resolve networks to channels in one user's YouTube TV lineup."""
+    """Resolve networks to channels in one user's YouTube TV lineup (and streaming apps on the TV)."""
 
-    def __init__(self, lineup: dict[str, str], locals_: dict[str, str]) -> None:
+    def __init__(self, lineup: dict[str, str], locals_: dict[str, str], apps: dict[str, str] | None = None) -> None:
         self.lineup = lineup
+        self.apps = apps or {}            # streaming service -> DIAL app name found on the TV
         by_norm = {norm(name): name for name in lineup}
         self.brand_channel: dict[str, str] = {}
         for brand, (_, aliases) in NETWORKS.items():
@@ -59,6 +60,15 @@ class ChannelMap:
             return None
         best = min(brands, key=PREFERENCE.index)
         return self.brand_channel[best]
+
+    def app_for(self, networks: list[str]) -> str | None:
+        """Streaming service (installed on the TV) that carries the game, if any."""
+        for n in networks:
+            key = norm(n)
+            for service, (aliases, _) in STREAMING.items():
+                if key in aliases and service in self.apps:
+                    return service
+        return None
 
     def quick_channels(self) -> list[dict[str, str]]:
         """Sports channels the user has, in preference order, for the card's channel bar."""
@@ -127,7 +137,8 @@ def _game(league_key: str, label: str, sport: str, slug: str, event: dict[str, A
         "state": state, "detail": status.get("shortDetail") or status.get("detail"),
         "alert": game_alert(sport, league_key, state, period, clock, teams),
         "start": event.get("date"), "tbd": comp.get("timeValid", True) is False,
-        "teams": teams, "situation": sit, "nets": nets, "channel": channels.channel_for(nets),
+        "teams": teams, "situation": sit, "nets": nets, "channel": (chan := channels.channel_for(nets)),
+        "app": None if chan else channels.app_for(nets),
         "note": ((comp.get("notes") or [{}])[0]).get("headline"),
     }
 

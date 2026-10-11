@@ -31,6 +31,10 @@ which YouTube TV channel every game is on, and tunes the YouTube TV app on your 
 - **Game detail:** press and hold a game (or tap ⓘ) for a sheet with the line score, a
   win-probability chart, team leaders, the latest plays, the betting line, venue and weather.
 - **Strip mode** for a home dashboard: one compact row with your teams' games and any close games.
+- **Streaming-only games** (Peacock, Paramount+, Prime Video, ESPN+, Apple TV, Netflix, Max):
+  if the app is installed on the TV (detected automatically), tapping the game turns the TV on
+  and **opens the app** — pick the game from its Live / Sports row. *Experimental:* these apps
+  don't offer a public way to jump straight into a specific game.
 - Optional: turn the TV on first (any `media_player` with `turn_on`, e.g. Samsung + Wake-on-LAN).
 - Sensors: **Now on** (last channel tuned) and **Live games** (with your favorites that are live),
   and a `tune_channel` service for automations ("put the Guardians on at first pitch").
@@ -115,6 +119,7 @@ For a dedicated tablet, put it alone in a **panel** view. It pairs well with
 | Service | What it does |
 |---|---|
 | `youtube_tv_gameday.tune_channel` | `channel:` (as named in your lineup, e.g. `ESPN`, `FOX 5`) — turns the TV on if configured, then tunes. |
+| `youtube_tv_gameday.open_app` | `app:` (`Peacock`, `Paramount+`, `Prime Video`, `ESPN+`, `Apple TV`, `Netflix`, `Max`) — turns the TV on if configured, then opens that app. |
 | `youtube_tv_gameday.scoreboard` | Returns today's games with scores and channels (response only). |
 
 ```yaml
