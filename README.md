@@ -5,6 +5,11 @@ Live scores in Home Assistant — **tap a game and your TV switches to it** on Y
 A full-screen, tablet-friendly scoreboard card plus a Home Assistant integration that knows
 which YouTube TV channel every game is on, and tunes the YouTube TV app on your TV for you.
 
+![The Gameday board](docs/board.png)
+
+*The full board: a live game up top, upcoming games grouped by league, favorites starred, and a
+channel bar built from your lineup. Tap any game to tune the TV.*
+
 ![On a wall tablet](docs/tablet.png)
 
 *A Fire 7 tablet in Fully Kiosk: regional NFL games flagged, the game on TV highlighted (a saved NFL Sunday Ticket stream).*
