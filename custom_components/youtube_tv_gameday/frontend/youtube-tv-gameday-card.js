@@ -384,12 +384,21 @@ class YouTubeTvGamedayCard extends HTMLElement {
       const c = (l.cats || [])[0]; return c ? `<span class="nl"><b>${esc(l.team)}</b> ${esc(c.who || "")} · ${esc(c.line)}</span>` : "";
     }).join("");
     const play = (d.plays || [])[0] ? `<div class="nowplay"><span class="k">LATEST</span> ${esc(d.plays[0])}</div>` : "";
+    // Two columns: teams on the left, win probability on the right. The line score fills whichever
+    // side has room (under the teams when there's a chart, else it takes the right column itself).
+    const wp = this._wpChart(d, a, h);
+    const lscore = this._lineScore(d);
+    const leftExtra = wp ? lscore : "";
+    const rightMain = wp || lscore || "";
     return `<section class="nowtv" data-info="${esc(d.game_id)}" style="--c1:${hex(a.color, "#3a4a63")};--c2:${hex(h.color, "#63503a")}">
       <div class="nowtv-head"><span class="tag">📺 On your TV</span>
         <span class="st"><span class="livetag">LIVE</span> ${esc(d.detail || "")}</span>
         ${chan}${this._situation(lite)}
         <button class="nowx" data-nowhide="${esc(d.game_id)}" aria-label="Hide">✕</button></div>
-      <div class="nowtv-body"><div class="nowteams">${row(a)}${row(h)}</div>${this._wpChart(d, a, h)}</div>
+      <div class="nowtv-body">
+        <div class="nowleft"><div class="nowteams">${row(a)}${row(h)}</div>${leftExtra}</div>
+        <div class="nowwp">${rightMain}</div>
+      </div>
       ${this._atBat(d, lite)}
       ${lead ? `<div class="nowleaders">${lead}</div>` : ""}
       ${play}
@@ -500,10 +509,6 @@ class YouTubeTvGamedayCard extends HTMLElement {
       onerror="if(this.dataset.light&&this.src!==this.dataset.light){this.src=this.dataset.light}" alt="">` : "";
     const head = (t) => `<div class="dteam">${logo(t)}<div class="dname">${esc(t.name)}
       ${t.record ? `<span class="rec">${esc(t.record)}</span>` : ""}</div><div class="dscore">${d.state === "pre" ? "" : esc(t.score ?? "")}</div></div>`;
-    const periods = Math.max(a.periods?.length || 0, h.periods?.length || 0);
-    const lines = periods ? `<table class="lines"><tr><th></th>${Array.from({ length: periods }, (_, i) => `<th>${i + 1}</th>`).join("")}<th>T</th></tr>
-      ${[a, h].map((t) => `<tr><td>${esc(t.abbr)}</td>${Array.from({ length: periods }, (_, i) => `<td>${esc((t.periods || [])[i] ?? "")}</td>`).join("")}
-        <td class="tot">${esc(t.score ?? "")}</td></tr>`).join("")}</table>` : "";
     const ch = d.channel;
     const lbl = esc((a.abbr || "") + " @ " + (h.abbr || ""));
     const open = d.state !== "post";
@@ -526,7 +531,7 @@ class YouTubeTvGamedayCard extends HTMLElement {
       <div class="dhead">${head(a)}<div class="at">@</div>${head(h)}</div>
       ${d.alert && live ? `<div class="alertline big">${esc(d.alert.text)}</div>` : ""}
       <div class="dactions">${watch}</div>
-      ${lines}
+      ${this._lineScore(d)}
       ${this._atBat(d, lite)}
       ${this._wpChart(d, a, h)}
       ${d.leaders?.length ? `<h3>Leaders</h3><div class="leaders">${d.leaders.map((l) => `<div class="lcol"><div class="lteam">${esc(l.team)}</div>
@@ -535,6 +540,15 @@ class YouTubeTvGamedayCard extends HTMLElement {
       ${d.plays?.length ? `<h3>${d.state === "post" ? "Last plays" : "Latest"}</h3><ol class="plays">${d.plays.map((p) => `<li>${esc(p)}</li>`).join("")}</ol>` : ""}
       ${chips.length ? `<div class="dchips">${chips.map((c) => `<span>${esc(c)}</span>`).join("")}</div>` : ""}
     </div>`;
+  }
+
+  _lineScore(d) {
+    const [a, h] = d.teams.length === 2 ? d.teams : [d.teams[0] || {}, d.teams[1] || {}];
+    const periods = Math.max(a.periods?.length || 0, h.periods?.length || 0);
+    if (!periods) return "";
+    return `<table class="lines"><tr><th></th>${Array.from({ length: periods }, (_, i) => `<th>${i + 1}</th>`).join("")}<th>T</th></tr>
+      ${[a, h].map((t) => `<tr><td>${esc(t.abbr)}</td>${Array.from({ length: periods }, (_, i) => `<td>${esc((t.periods || [])[i] ?? "")}</td>`).join("")}
+        <td class="tot">${esc(t.score ?? "")}</td></tr>`).join("")}</table>`;
   }
 
   _wpChart(d, a, h) {
@@ -653,7 +667,9 @@ const CSS = `
   .nowtv-head .net { margin-left:2px; }
   .nowtv-head .sit { margin-left:0; }
   .nowx { margin-left:auto; width:26px; height:26px; border-radius:50%; border:none; background:#1f2836; color:#c9d3e0; font-size:13px; cursor:pointer; flex:none; }
-  .nowtv-body { display:grid; grid-template-columns:minmax(210px,1fr) minmax(260px,1.3fr); gap:14px; align-items:center; margin-top:8px; }
+  .nowtv-body { display:grid; grid-template-columns:minmax(230px,1fr) minmax(300px,1.2fr); gap:14px 20px; align-items:center; margin-top:8px; }
+  .nowleft { min-width:0; } .nowleft .lines { margin-top:12px; }
+  .nowwp { min-width:0; } .nowwp .wp { height:120px; } .nowwp h3 { margin-top:0; }
   .nowteams { display:flex; flex-direction:column; gap:4px; }
   .ntrow { display:flex; align-items:center; gap:9px; font-size:18px; }
   .ntrow img, .ntrow .nologo { width:28px; height:28px; object-fit:contain; flex:none; }
