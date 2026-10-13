@@ -684,12 +684,12 @@ const CSS = `
   .nowplay { margin-top:8px; font-size:14px; color:#e8edf5; }
   .nowplay .k { font-size:10px; letter-spacing:.14em; color:#7d8899; margin-right:6px; }
   .nowmore { text-align:right; color:#8fc1ff; font-size:12px; font-weight:700; margin-top:6px; }
-  .atbat { display:flex; flex-wrap:wrap; gap:8px 26px; margin-top:10px; padding-top:10px; border-top:1px solid #203042; }
-  .atbat .ab { display:flex; align-items:baseline; gap:8px; font-size:15px; min-width:0; }
-  .atbat .ab .k { font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:#7d8899; white-space:nowrap; }
-  .atbat .ab b { color:#e8edf5; font-weight:800; white-space:nowrap; }
-  .atbat .ab .sub { color:#9aa7b8; font-size:13px; }
-  @media (max-width: 700px) { .nowtv-body { grid-template-columns:1fr; } .atbat { gap:6px 14px; } }
+  .atbat { display:flex; flex-wrap:wrap; gap:10px 28px; margin-top:12px; padding-top:12px; border-top:1px solid #203042; }
+  .atbat .ab { display:flex; align-items:baseline; gap:9px; font-size:18px; min-width:0; }
+  .atbat .ab .k { font-size:11px; letter-spacing:.12em; text-transform:uppercase; color:#7d8899; white-space:nowrap; }
+  .atbat .ab b { color:#e8edf5; font-weight:800; font-size:19px; white-space:nowrap; }
+  .atbat .ab .sub { color:#c9d3e0; font-size:16px; }
+  @media (max-width: 700px) { .nowtv-body { grid-template-columns:1fr; } .atbat { gap:8px 16px; } }
   .sheet-bg { position:fixed; inset:0; background:rgba(5,8,12,.72); display:none; align-items:flex-end; justify-content:center; z-index:5; }
   .sheet-bg.open { display:flex; }
   .sheet { position:relative; width:min(760px, 100%); max-height:88vh; overflow-y:auto; background:#121924; border:1px solid #273244;
