@@ -206,8 +206,11 @@ async def ws_game(hass: HomeAssistant, connection: websocket_api.ActiveConnectio
     if game is None:
         connection.send_error(msg["id"], "not_found", "That game isn't on today's scoreboard")
         return
+    sit = game.get("situation") or {}
+    pid = (sit.get("pitcher") or {}).get("pid")
+    bid = (sit.get("batter") or {}).get("pid")
     try:
-        detail = await fetch_summary(coord.session, game["sport"], game["slug"], game["id"])
+        detail = await fetch_summary(coord.session, game["sport"], game["slug"], game["id"], pid, bid)
     except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as err:
         connection.send_error(msg["id"], "unavailable", f"ESPN summary failed: {err}")
         return

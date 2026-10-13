@@ -40,7 +40,8 @@ channel bar built from your lineup. Tap any game to tune the TV.*
 - **Game detail:** press and hold a game (or tap ⓘ) for a sheet with the line score, a
   win-probability chart, team leaders, the latest plays, the betting line, venue and weather.
 - **On your TV:** once you tune a live game, its stats pin to the top of the board — score,
-  win probability, leaders and the latest play — and refresh on their own until the game ends,
+  win probability, leaders, the latest play, and for baseball the live at-bat (batter and pitcher
+  with pitch count and season AVG / OBP / ERA) — and refresh on their own until the game ends,
   you change the channel, or the TV turns off. A `binary_sensor.…_game_on` exposes that same
   state, so a wall tablet can hold the board up instead of dropping to a screensaver mid-game.
 - **Strip mode** for a home dashboard: one compact row with your teams' games and any close games.

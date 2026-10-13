@@ -126,6 +126,12 @@ def _game(league_key: str, label: str, sport: str, slug: str, event: dict[str, A
     sit: dict[str, Any] = {}
     if live and sport == "baseball":
         sit = {k: situation.get(k) for k in ("balls", "strikes", "outs", "onFirst", "onSecond", "onThird")}
+        for who in ("pitcher", "batter"):                 # current at-bat (names + today's line + id)
+            info = situation.get(who) or {}
+            ath = info.get("athlete") or {}
+            if ath:
+                sit[who] = {"name": ath.get("shortName") or ath.get("displayName"),
+                            "summary": info.get("summary"), "pid": ath.get("id")}
     elif live and sport == "football":
         sit = {"down": situation.get("shortDownDistanceText") or situation.get("downDistanceText"),
                "redzone": situation.get("isRedZone")}
@@ -199,7 +205,41 @@ def game_alert(sport: str, league_key: str, state: str, period: int, clock: floa
     return None
 
 
-async def fetch_summary(session: aiohttp.ClientSession, sport: str, slug: str, event_id: str) -> dict[str, Any]:
+def _boxscore_line(boxscore: dict[str, Any], player_id: Any, kind: str) -> tuple[str | None, dict[str, str]]:
+    """One player's batting/pitching line from the summary boxscore, as (name, {label: value})."""
+    pid = str(player_id)
+    for team in boxscore.get("players") or []:
+        for block in team.get("statistics") or []:
+            if block.get("type") != kind:
+                continue
+            labels = block.get("labels") or []
+            for ath in block.get("athletes") or []:
+                a = ath.get("athlete") or {}
+                if str(a.get("id")) == pid:
+                    return (a.get("shortName") or a.get("displayName")), dict(zip(labels, ath.get("stats") or []))
+    return None, {}
+
+
+def _at_bat(summary: dict[str, Any], pitcher_id: Any = None, batter_id: Any = None) -> dict[str, Any] | None:
+    """Baseball: who's pitching/batting right now, with pitch count and season AVG/OBP/ERA.
+    The summary's situation is blank between innings, so the current players come from the
+    scoreboard (pitcher_id/batter_id); the summary boxscore supplies their season stats."""
+    sit = summary.get("situation") or {}
+    box = summary.get("boxscore") or {}
+    pp = (sit.get("pitcher") or {}).get("playerId") or pitcher_id
+    bp = (sit.get("batter") or {}).get("playerId") or batter_id
+    pname, p = _boxscore_line(box, pp, "pitching") if pp else (None, {})
+    bname, b = _boxscore_line(box, bp, "batting") if bp else (None, {})
+    pcst = p.get("PC-ST")
+    out: dict[str, Any] = {k: sit.get(k) for k in ("balls", "strikes", "outs")}
+    out["pitcher"] = {"name": pname, "ip": p.get("IP"), "pc": p.get("PC") or (pcst.split("-")[0] if pcst else None),
+                      "pcst": pcst, "era": p.get("ERA")} if pname else None
+    out["batter"] = {"name": bname, "today": b.get("H-AB"), "avg": b.get("AVG"), "obp": b.get("OBP")} if bname else None
+    return out if (out["pitcher"] or out["batter"]) else None
+
+
+async def fetch_summary(session: aiohttp.ClientSession, sport: str, slug: str, event_id: str,
+                        pitcher_id: Any = None, batter_id: Any = None) -> dict[str, Any]:
     """One game's detail for the card's long-press sheet."""
     url = f"{ESPN}/{sport}/{slug}/summary?event={event_id}"
     async with session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
@@ -248,9 +288,10 @@ async def fetch_summary(session: aiohttp.ClientSession, sport: str, slug: str, e
     pick = (s.get("pickcenter") or [{}])[0]
     info = s.get("gameInfo") or {}
     weather = info.get("weather") or {}
+    atbat = _at_bat(s, pitcher_id, batter_id) if sport == "baseball" and status.get("state") == "in" else None
     return {
         "id": event_id, "state": status.get("state"), "detail": status.get("shortDetail") or status.get("detail"),
-        "teams": teams, "winprob": wp, "leaders": leaders, "plays": plays,
+        "teams": teams, "winprob": wp, "leaders": leaders, "plays": plays, "atbat": atbat,
         "odds": {"line": pick.get("details"), "total": pick.get("overUnder")} if pick.get("details") else None,
         "venue": (info.get("venue") or {}).get("fullName"),
         "weather": f"{weather['temperature']}° {weather.get('conditionId') or ''}".strip()
