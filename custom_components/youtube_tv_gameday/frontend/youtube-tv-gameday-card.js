@@ -40,9 +40,10 @@ class YouTubeTvGamedayCard extends HTMLElement {
     this._root.addEventListener("click", (ev) => {
       if (this._longFired) { this._longFired = false; ev.preventDefault(); return; }  // long-press already handled
       if (ev.target.id === "sheet" || ev.target.closest("[data-close]")) { this._closeDetail(); return; }
-      const el = ev.target.closest("[data-nav],[data-info],[data-remember],[data-game],[data-app],[data-ch],[data-filter],[data-mine]");
+      const el = ev.target.closest("[data-nav],[data-nowhide],[data-info],[data-remember],[data-game],[data-app],[data-ch],[data-filter],[data-mine]");
       if (!el) return;
       if (el.dataset.nav) this._navigate(el.dataset.nav);
+      else if (el.dataset.nowhide !== undefined) { this._nowHideGid = el.dataset.nowhide; this._nowDetail = null; this._render(); }
       else if (el.dataset.remember) this._remember(el.dataset.remember, el.dataset.label, el);
       else if (el.dataset.game && !el.dataset.info) this._tuneGame(el.dataset.game, el.dataset.label, el);
       else if (el.dataset.app) this._openApp(el.dataset.app, el.dataset.label, el);
@@ -114,6 +115,44 @@ class YouTubeTvGamedayCard extends HTMLElement {
       this._error = (e && (e.message || e.code)) || "couldn't load scores";
     }
     this._render();
+    this._refreshNow();   // the live-stats panel for the game on your TV (own fetch, re-renders when ready)
+  }
+
+  _label(g) {
+    const [a, h] = g.teams.length === 2 ? g.teams : [g.teams[0] || {}, g.teams[1] || {}];
+    return `${a.abbr || a.name} @ ${h.abbr || h.name}`;
+  }
+
+  // The live game currently on the TV, if we can tell: the backend resolves it (a game we put on, or the
+  // only live game on a tuned channel); fall back to matching what we last tuned here.
+  _nowGid() {
+    const d = this._data;
+    if (!d || d.tv === "off") return null;
+    const games = d.games || [];
+    const liveById = (id) => games.find((g) => g.id === id && g.state === "in");
+    if (d.now_game && liveById(d.now_game)) return d.now_game;
+    if (this._nowLabel) { const g = games.find((x) => x.state === "in" && this._label(x) === this._nowLabel); if (g) return g.id; }
+    if (this._now) { const g = games.find((x) => x.state === "in" && x.channel === this._now); if (g) return g.id; }
+    return null;
+  }
+
+  async _refreshNow() {
+    const gid = this._nowGid();
+    if (this._nowHideGid && this._nowHideGid !== gid) this._nowHideGid = null;  // a new game cancels a dismissal
+    const target = gid && gid !== this._nowHideGid ? gid : null;
+    if (!target) {
+      this._nowCur = null;
+      if (this._nowDetail) { this._nowDetail = null; this._render(); }
+      return;
+    }
+    try {
+      const msg = { type: "youtube_tv_gameday/game", game_id: target };
+      if (this._config.entry_id) msg.entry_id = this._config.entry_id;
+      const d = await this._hass.connection.sendMessagePromise(msg);
+      if (this._nowGid() === target) { this._nowDetail = d; this._nowCur = target; this._render(); }
+    } catch (e) {
+      if (this._nowCur !== target) { this._nowDetail = null; this._render(); }   // keep last good stats on a transient error
+    }
   }
 
   async _tune(ch, label, el) {
@@ -132,7 +171,9 @@ class YouTubeTvGamedayCard extends HTMLElement {
       this._now = ch;
       if (this._data) this._data.tv = "on";
       this._toast(`📺 Now on <b>${esc(ch)}</b>`, "ok");
+      this._nowHideGid = null;
       this._render();
+      this._refreshNow();
     } catch (e) {
       this._toast(`Couldn't tune ${esc(ch)}: ${esc(e.message || e)}`, "err");
     } finally {
@@ -160,7 +201,9 @@ class YouTubeTvGamedayCard extends HTMLElement {
       const tip = g.regional && !g.saved_stream
         ? `<br><span class="soft">Regional game — if your ${esc(g.channel)} shows a different one, put it on via Sunday Ticket and tap 📌 in its details.</span>` : "";
       this._toast(`📺 <b>${esc(label || "")}</b> · ${esc(what)}${tip}`, g.regional && !g.saved_stream ? "warn" : "ok");
+      this._nowHideGid = null;
       this._render();
+      this._refreshNow();
     } catch (e) {
       this._toast(`Couldn't put it on: ${esc(e.message || e)}`, "err");
     } finally {
@@ -270,6 +313,7 @@ class YouTubeTvGamedayCard extends HTMLElement {
         <button class="chip mine ${this._mine ? "on" : ""}" data-mine>Watchable</button>
       </nav>
       <div class="scroll">
+        ${this._nowPanel()}
         ${!d && !this._error ? `<div class="empty">Loading today's games…</div>` : ""}
         ${d && !games.length ? `<div class="empty">${(d.games || []).length ? "No games match — try another filter." : "No games today in your leagues."}</div>` : ""}
         ${this._section("Live now", live, "live")}
@@ -318,6 +362,38 @@ class YouTubeTvGamedayCard extends HTMLElement {
         ${more ? `<a class="open" data-nav="${esc(more)}">Open ›</a>` : ""}</div>
       <div class="srow">${items.length ? items.map(mini).join("")
         : `<div class="sempty">${d ? "No games for your teams today." : "Loading…"}${live && more ? ` <a data-nav="${esc(more)}">See all ${live} live games ›</a>` : ""}</div>`}</div>`;
+  }
+
+  // Pinned live stats for the game on your TV. Uses the same summary as the long-press sheet,
+  // refreshed on every poll; tap it for the full sheet. Shown only while that game is live.
+  _nowPanel() {
+    if (this._config.mode === "strip") return "";
+    const d = this._nowDetail;
+    if (!d || d.state !== "in") return "";
+    const lite = this._game(d.game_id) || {};
+    const [a, h] = d.teams.length === 2 ? d.teams : [d.teams[0] || {}, d.teams[1] || {}];
+    const logo = (t) => t.logo ? `<img src="${esc(t.logo.replace("/500/", "/500-dark/"))}" data-light="${esc(t.logo)}"
+      onerror="if(this.dataset.light&&this.src!==this.dataset.light){this.src=this.dataset.light}" alt="">` : `<span class="nologo"></span>`;
+    const chan = d.saved_stream ? `<span class="net saved">📌 Saved stream</span>`
+      : d.channel ? `<span class="net on">📺 ${esc((this._short || {})[d.channel] || d.channel)}</span>`
+      : d.app ? `<span class="net app">▶ ${esc(d.app)}</span>` : "";
+    const row = (t) => `<div class="ntrow ${t.winner === false ? "lose" : ""}">${logo(t)}
+      <span class="nm">${esc(t.name)}</span>${t.record ? `<span class="rec">${esc(t.record)}</span>` : ""}
+      <span class="sc">${esc(t.score ?? "")}</span></div>`;
+    const lead = (d.leaders || []).map((l) => {
+      const c = (l.cats || [])[0]; return c ? `<span class="nl"><b>${esc(l.team)}</b> ${esc(c.who || "")} · ${esc(c.line)}</span>` : "";
+    }).join("");
+    const play = (d.plays || [])[0] ? `<div class="nowplay"><span class="k">LATEST</span> ${esc(d.plays[0])}</div>` : "";
+    return `<section class="nowtv" data-info="${esc(d.game_id)}" style="--c1:${hex(a.color, "#3a4a63")};--c2:${hex(h.color, "#63503a")}">
+      <div class="nowtv-head"><span class="tag">📺 On your TV</span>
+        <span class="st"><span class="livetag">LIVE</span> ${esc(d.detail || "")}</span>
+        ${chan}${this._situation(lite)}
+        <button class="nowx" data-nowhide="${esc(d.game_id)}" aria-label="Hide">✕</button></div>
+      <div class="nowtv-body"><div class="nowteams">${row(a)}${row(h)}</div>${this._wpChart(d, a, h)}</div>
+      ${lead ? `<div class="nowleaders">${lead}</div>` : ""}
+      ${play}
+      <div class="nowmore">Tap for full details ›</div>
+    </section>`;
   }
 
   _navigate(path) {
@@ -548,6 +624,31 @@ const CSS = `
   .alertline { margin-top:6px; color:#ffcf70; font-size:13px; font-weight:700; letter-spacing:.02em; }
   .tile.upset .alertline { color:#ff9a90; }
   .alertline.big { font-size:15px; text-align:center; margin:4px 0 10px; }
+  .nowtv { position:relative; margin:14px 0 4px; background:linear-gradient(180deg,#10261b,#121924); border:1px solid #2e7d4f;
+    border-radius:16px; padding:12px 14px 10px; cursor:pointer; box-shadow:0 0 0 1px rgba(61,220,132,.25), 0 10px 30px rgba(61,220,132,.12); }
+  .nowtv::before { content:""; position:absolute; inset:0 0 auto 0; height:4px; border-radius:16px 16px 0 0; background:linear-gradient(90deg, var(--c1), var(--c2)); }
+  .nowtv-head { display:flex; align-items:center; gap:10px; flex-wrap:wrap; font-size:13px; color:#9aa7b8; }
+  .nowtv-head .tag { font-weight:900; letter-spacing:.1em; text-transform:uppercase; color:#8affc0; font-size:12px; }
+  .nowtv-head .st { font-weight:700; color:#e8edf5; display:flex; align-items:center; }
+  .nowtv-head .net { margin-left:2px; }
+  .nowtv-head .sit { margin-left:0; }
+  .nowx { margin-left:auto; width:26px; height:26px; border-radius:50%; border:none; background:#1f2836; color:#c9d3e0; font-size:13px; cursor:pointer; flex:none; }
+  .nowtv-body { display:grid; grid-template-columns:minmax(210px,1fr) minmax(260px,1.3fr); gap:14px; align-items:center; margin-top:8px; }
+  .nowteams { display:flex; flex-direction:column; gap:4px; }
+  .ntrow { display:flex; align-items:center; gap:9px; font-size:18px; }
+  .ntrow img, .ntrow .nologo { width:28px; height:28px; object-fit:contain; flex:none; }
+  .ntrow .nm { font-weight:800; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .ntrow .rec { color:#6f7d90; font-size:12px; }
+  .ntrow .sc { margin-left:auto; font-size:26px; font-weight:900; font-variant-numeric:tabular-nums; }
+  .ntrow.lose { color:#7d8899; }
+  .nowtv .wp { height:88px; }
+  .nowtv h3 { margin:6px 0 4px; }
+  .nowleaders { display:flex; flex-wrap:wrap; gap:8px 16px; margin-top:8px; font-size:13px; color:#c9d3e0; }
+  .nowleaders .nl b { color:#8affc0; margin-right:4px; }
+  .nowplay { margin-top:8px; font-size:14px; color:#e8edf5; }
+  .nowplay .k { font-size:10px; letter-spacing:.14em; color:#7d8899; margin-right:6px; }
+  .nowmore { text-align:right; color:#8fc1ff; font-size:12px; font-weight:700; margin-top:6px; }
+  @media (max-width: 700px) { .nowtv-body { grid-template-columns:1fr; } }
   .sheet-bg { position:fixed; inset:0; background:rgba(5,8,12,.72); display:none; align-items:flex-end; justify-content:center; z-index:5; }
   .sheet-bg.open { display:flex; }
   .sheet { position:relative; width:min(760px, 100%); max-height:88vh; overflow-y:auto; background:#121924; border:1px solid #273244;

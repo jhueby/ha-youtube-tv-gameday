@@ -39,6 +39,10 @@ channel bar built from your lineup. Tap any game to tune the TV.*
   with a **Watch** button that tunes the TV, and/or automate on the `youtube_tv_gameday_alert` event.
 - **Game detail:** press and hold a game (or tap ⓘ) for a sheet with the line score, a
   win-probability chart, team leaders, the latest plays, the betting line, venue and weather.
+- **On your TV:** once you tune a live game, its stats pin to the top of the board — score,
+  win probability, leaders and the latest play — and refresh on their own until the game ends,
+  you change the channel, or the TV turns off. A `binary_sensor.…_game_on` exposes that same
+  state, so a wall tablet can hold the board up instead of dropping to a screensaver mid-game.
 - **Strip mode** for a home dashboard: one compact row with your teams' games and any close games.
 - **Streaming-only games** (Peacock, Paramount+, Prime Video, ESPN+, Apple TV, Netflix, Max):
   if the app is installed on the TV (detected automatically), tapping the game turns the TV on
@@ -51,7 +55,8 @@ channel bar built from your lineup. Tap any game to tune the TV.*
   playing — e.g. an NFL Sunday Ticket stream — as that game's stream for the day, so tapping the game
   goes straight back to it.
 - Optional: turn the TV on first (any `media_player` with `turn_on`, e.g. Samsung + Wake-on-LAN).
-- Sensors: **Now on** (last channel tuned) and **Live games** (with your favorites that are live),
+- Sensors: **Now on** (last channel tuned), **Live games** (with your favorites that are live),
+  and **Game on TV** (a binary sensor, on while a live game you tuned is playing),
   and a `tune_channel` service for automations ("put the Guardians on at first pitch").
 
 ## Requirements

@@ -25,7 +25,7 @@ from .espn import fetch_summary
 from .youtube_tv import TuneError
 
 _LOGGER = logging.getLogger(__name__)
-PLATFORMS = [Platform.SENSOR]
+PLATFORMS = [Platform.BINARY_SENSOR, Platform.SENSOR]
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 
 GameDayConfigEntry = ConfigEntry[GameDayCoordinator]

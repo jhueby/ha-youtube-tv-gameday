@@ -85,6 +85,11 @@
       "live_games": {
         "name": "Live games"
       }
+    },
+    "binary_sensor": {
+      "game_on": {
+        "name": "Game on"
+      }
     }
   },
   "services": {

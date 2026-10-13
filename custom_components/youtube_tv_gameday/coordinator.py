@@ -33,6 +33,7 @@ class GameDayCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         self.session = async_get_clientsession(hass)
         self.now_channel: str | None = None
         self.now_label: str | None = None
+        self.now_game_id: str | None = None   # the game we put on (when tuned by game, not bare channel)
         self.tuned_at = None
         self._tune_lock = asyncio.Lock()
         self.apps: dict[str, str] = {}          # streaming service -> DIAL app name on the TV
@@ -152,27 +153,48 @@ class GameDayCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
                 g["saved_stream"] = True
         return games
 
+    def now_game(self) -> dict[str, Any] | None:
+        """The game currently on the TV, if we can tell: the one we put on while it's still live,
+        or — when a bare channel was tuned — the single live game on that channel."""
+        games = self.data or []
+        if self.now_game_id:
+            g = next((g for g in games if g["id"] == self.now_game_id), None)
+            if g and g["state"] == "in":
+                return g
+        if self.now_channel:
+            on_chan = [g for g in games if g["state"] == "in" and g.get("channel") == self.now_channel]
+            if len(on_chan) == 1:
+                return on_chan[0]
+        return None
+
+    def game_on(self) -> bool:
+        """A live game is on the TV right now (TV not known-off, and a live game is tuned)."""
+        return self._tv_state() != "off" and self.now_game() is not None
+
     def payload(self) -> dict[str, Any]:
         """What the card needs, in one message."""
+        ng = self.now_game()
         return {
             "games": self._annotated(),
             "updated": (getattr(self, "fetched_at", None) or dt_util.utcnow()).isoformat(),
             "now": self.now_channel,
             "now_label": self.now_label,
+            "now_game": ng["id"] if ng else None,
+            "game_on": self.game_on(),
             "tv": self._tv_state(),
             "favorites": self.favorites,
             "quick": self.channels.quick_channels(),
         }
 
     # --- tuning --------------------------------------------------------------------------
-    async def async_tune(self, channel: str, label: str | None = None) -> None:
+    async def async_tune(self, channel: str, label: str | None = None, game_id: str | None = None) -> None:
         video_id = self.lineup.get(channel)
         if not video_id:
             raise TuneError(f"{channel} is not in your YouTube TV lineup")
         async with self._tune_lock:
             await self._power_on()
             await tune(self.session, self.config_entry.data[CONF_APP_URL], video_id)
-            self.now_channel, self.now_label, self.tuned_at = channel, label, dt_util.now()
+            self.now_channel, self.now_label, self.now_game_id, self.tuned_at = channel, label, game_id, dt_util.now()
             self.async_update_listeners()
 
     def _label(self, game: dict[str, Any]) -> str:
@@ -190,14 +212,14 @@ class GameDayCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
                 await self._power_on()
                 await tune(self.session, self.config_entry.data[CONF_APP_URL], saved)
                 name = next((c for c, v in self.lineup.items() if v == saved), "saved stream")
-                self.now_channel, self.now_label, self.tuned_at = name, label, dt_util.now()
+                self.now_channel, self.now_label, self.now_game_id, self.tuned_at = name, label, game_id, dt_util.now()
                 self.async_update_listeners()
             return {"via": "saved", "channel": name}
         if game.get("channel"):
-            await self.async_tune(game["channel"], label)
+            await self.async_tune(game["channel"], label, game_id)
             return {"via": "channel", "channel": game["channel"]}
         if game.get("app"):
-            await self.async_open_app(game["app"], label)
+            await self.async_open_app(game["app"], label, game_id)
             return {"via": "app", "app": game["app"]}
         raise TuneError(f"{label} isn't on a channel or app you have")
 
@@ -212,7 +234,8 @@ class GameDayCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         self._learned_today()[game_id] = video_id
         await self._store.async_save({"day": self._learned_day, "streams": self.learned})
         name = next((c for c, v in self.lineup.items() if v == video_id), None)
-        self.now_channel, self.now_label, self.tuned_at = name or "saved stream", self._label(game), dt_util.now()
+        self.now_channel, self.now_label, self.now_game_id, self.tuned_at = (
+            name or "saved stream", self._label(game), game_id, dt_util.now())
         self.async_update_listeners()
         return {"video_id": video_id, "channel": name}
 
@@ -235,7 +258,7 @@ class GameDayCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
             self.apps = found
         self._apps_checked = now
 
-    async def async_open_app(self, service: str, label: str | None = None) -> None:
+    async def async_open_app(self, service: str, label: str | None = None, game_id: str | None = None) -> None:
         """Turn the TV on if needed and open a streaming app (for games not on YouTube TV)."""
         dial = self.apps.get(service)
         if not dial:
@@ -243,7 +266,7 @@ class GameDayCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         async with self._tune_lock:
             await self._power_on()
             await launch_app(self.session, self.config_entry.data[CONF_APP_URL], dial)
-            self.now_channel, self.now_label, self.tuned_at = service, label, dt_util.now()
+            self.now_channel, self.now_label, self.now_game_id, self.tuned_at = service, label, game_id, dt_util.now()
             self.async_update_listeners()
 
     async def _power_on(self) -> None:
