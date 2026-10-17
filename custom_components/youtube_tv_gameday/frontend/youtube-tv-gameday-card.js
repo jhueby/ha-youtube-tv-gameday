@@ -289,9 +289,11 @@ class YouTubeTvGamedayCard extends HTMLElement {
     if (!main) return;
     if (this._config.mode === "strip") { this._renderStrip(main); return; }
     const d = this._data;
+    const leagues = ["All", ...new Set((d?.games || []).map((g) => g.league))];
+    // A league remembered from another day that has no games today would hide everything with no chip lit.
+    if (d?.games?.length && !leagues.includes(this._filter)) this._filter = "All";
     const games = (d?.games || []).filter((g) =>
       (this._filter === "All" || g.league === this._filter) && (!this._mine || g.channel || g.app));
-    const leagues = ["All", ...new Set((d?.games || []).map((g) => g.league))];
     const byFav = (a, b) => (this._isFav(b) - this._isFav(a));
     const live = games.filter((g) => g.state === "in")
       .sort((a, b) => byFav(a, b) || (!!b.alert - !!a.alert) || (!!b.channel - !!a.channel));
