@@ -53,12 +53,14 @@
           "power_entity": "Turn this media player on before tuning (optional)",
           "alert_scope": "Close-game alerts for",
           "alert_notify": "Send alerts to",
-          "local_teams": "Local teams (your CBS/FOX stations always carry them)"
+          "local_teams": "Local teams (your CBS/FOX stations always carry them)",
+          "top_events": "Also show the day's big games from other leagues"
         },
         "data_description": {
           "alert_scope": "Alerts fire once per game when it gets close late, goes to overtime, or a ranked team is upset-threatened. They always fire the youtube_tv_gameday_alert event; pick who gets a notification.",
           "alert_notify": "A notify service. Mobile-app notifications get a Watch button that tunes the TV.",
-          "local_teams": "NFL Sunday afternoon games are regional: when several are on CBS or FOX at once, your station carries only one. Games for these teams are treated as local; the others are marked regional."
+          "local_teams": "NFL Sunday afternoon games are regional: when several are on CBS or FOX at once, your station carries only one. Games for these teams are treated as local; the others are marked regional.",
+          "top_events": "Featured games from leagues you don't follow (e.g. El Clásico when La Liga isn't picked), as chosen for ESPN's homepage scores bar. Marked \"Featured\" on the board."
         }
       },
       "lineup": {

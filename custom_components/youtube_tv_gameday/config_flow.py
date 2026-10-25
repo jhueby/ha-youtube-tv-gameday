@@ -15,8 +15,8 @@ from homeassistant.helpers.selector import (EntitySelector, EntitySelectorConfig
                                             TextSelector, TextSelectorConfig)
 
 from .const import (ALERT_SCOPES, CONF_ALERT_NOTIFY, CONF_ALERT_SCOPE, CONF_APP_URL, CONF_FAVORITES, CONF_LOCAL_TEAMS,
-                    CONF_LEAGUES, CONF_LINEUP, CONF_LOCALS, CONF_POWER_ENTITY, DEFAULT_ALERT_SCOPE,
-                    DEFAULT_LEAGUES, DOMAIN, LEAGUES, LOCAL_NETWORKS)
+                    CONF_LEAGUES, CONF_LINEUP, CONF_LOCALS, CONF_POWER_ENTITY, CONF_TOP_EVENTS, DEFAULT_ALERT_SCOPE,
+                    DEFAULT_LEAGUES, DEFAULT_TOP_EVENTS, DOMAIN, LEAGUES, LOCAL_NETWORKS)
 from .espn import norm
 from .youtube_tv import guess_app_urls, discover, probe
 
@@ -164,6 +164,7 @@ class GameDayOptionsFlow(OptionsFlow):
             favs = [f.strip() for f in user_input.get(CONF_FAVORITES, "").split(",") if f.strip()]
             notify = user_input.get(CONF_ALERT_NOTIFY)
             return self._save(**{CONF_FAVORITES: favs, CONF_LEAGUES: user_input[CONF_LEAGUES],
+                                 CONF_TOP_EVENTS: user_input.get(CONF_TOP_EVENTS, DEFAULT_TOP_EVENTS),
                                  CONF_POWER_ENTITY: user_input.get(CONF_POWER_ENTITY),
                                  CONF_LOCAL_TEAMS: [t.strip() for t in user_input.get(CONF_LOCAL_TEAMS, "").split(",") if t.strip()],
                                  CONF_ALERT_SCOPE: user_input.get(CONF_ALERT_SCOPE, []),
@@ -177,6 +178,7 @@ class GameDayOptionsFlow(OptionsFlow):
             vol.Optional(CONF_LOCAL_TEAMS, default=", ".join(opts.get(CONF_LOCAL_TEAMS, []))): str,
             vol.Required(CONF_LEAGUES, default=opts.get(CONF_LEAGUES, DEFAULT_LEAGUES)):
                 SelectSelector(SelectSelectorConfig(options=league_opts, multiple=True)),
+            vol.Optional(CONF_TOP_EVENTS, default=opts.get(CONF_TOP_EVENTS, DEFAULT_TOP_EVENTS)): bool,
             vol.Optional(CONF_POWER_ENTITY, description={"suggested_value": opts.get(CONF_POWER_ENTITY)}):
                 EntitySelector(EntitySelectorConfig(domain="media_player")),
             vol.Optional(CONF_ALERT_SCOPE, default=opts.get(CONF_ALERT_SCOPE, DEFAULT_ALERT_SCOPE)):

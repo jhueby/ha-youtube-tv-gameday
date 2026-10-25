@@ -458,7 +458,7 @@ class YouTubeTvGamedayCard extends HTMLElement {
       <div class="tile ${g.state} ${tappable ? "tap" : "dim"} ${onTv ? "ontv" : ""} ${this._isFav(g) ? "fav" : ""} ${alert ? "alert " + esc(alert.kind) : ""}"
            data-gid="${esc(g.id)}" ${tappable ? `${target} data-label="${esc(label)}"` : ""}
            style="--c1:${hex(a.color, "#3a4a63")};--c2:${hex(h.color, "#63503a")}">
-        <div class="top"><span class="lg">${esc(TAG[g.league] || g.league)}${this._isFav(g) ? " ★" : ""}</span>
+        <div class="top"><span class="lg">${esc(TAG[g.league] || g.league)}${this._isFav(g) ? " ★" : ""}${g.top ? '<span class="feat">Featured</span>' : ""}</span>
           <span class="st">${status}<button class="info" data-info="${esc(g.id)}" aria-label="Game details">i</button></span></div>
         ${this._team(a, g)}${this._team(h, g)}
         ${alert ? `<div class="alertline">${{ close: "🔥", ot: "⏱", upset: "⚠" }[alert.kind] || "🔥"} ${esc(alert.text)}</div>` : ""}
@@ -613,6 +613,7 @@ const CSS = `
   .tile.fav { background:#18202f; }
   .top { display:flex; justify-content:space-between; align-items:center; font-size:12.5px; color:#9aa7b8; margin-bottom:8px; }
   .lg { text-transform:uppercase; letter-spacing:.1em; font-weight:700; white-space:nowrap; }
+  .feat { margin-left:8px; padding:1px 7px; border-radius:6px; background:#3a2f0b; color:#f5c84b; font-size:10.5px; letter-spacing:.08em; }
   .st { font-weight:700; color:#e8edf5; font-variant-numeric:tabular-nums; white-space:nowrap; display:flex; align-items:center; }
   .livetag { color:#ff6b61; font-weight:800; letter-spacing:.08em; margin-right:4px; }
   .livetag::before { content:""; margin-right:5px; vertical-align:1px; }

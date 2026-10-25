@@ -10,7 +10,7 @@ from typing import Any
 
 import aiohttp
 
-from .const import ESPN, LEAGUES, LOCAL_NETWORKS, NETWORKS, PREFERENCE, STREAMING
+from .const import ESPN, ESPN_HEADER, LEAGUES, LOCAL_NETWORKS, NETWORKS, PREFERENCE, STREAMING, TOP_SPORTS
 
 _LOGGER = logging.getLogger(__name__)
 _NOT_TV = {"eradm", "radio", "espn radio", "siriusxm", "sirius xm"}
@@ -332,3 +332,60 @@ async def fetch_scoreboard(session: aiohttp.ClientSession, leagues: list[str], d
             seen.add(game["id"])
             games.append(game)
     return games
+
+
+async def fetch_top_events(session: aiohttp.ClientSession, day: datetime, channels: ChannelMap,
+                           followed: set[tuple[str, str]]) -> list[dict[str, Any]]:
+    """ESPN's featured games (its homepage scores bar) from leagues you don't follow, e.g. El Clasico.
+
+    The bar only lists event ids, so each league's own scoreboard is fetched and just those games are kept:
+    they then get the same channels, alerts and detail sheet as any other game."""
+    try:
+        async with session.get(ESPN_HEADER, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+            if resp.status != 200:
+                return []
+            data = await resp.json(content_type=None)
+    except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as err:
+        _LOGGER.debug("ESPN featured games failed: %s", err)
+        return []
+
+    by_slug = {(sport, slug): (key, label, extra)
+               for key, (label, sport, slugs, extra) in LEAGUES.items() for slug in slugs}
+    wanted: dict[tuple[str, str], tuple[str, str, str, set[str]]] = {}
+    for sp in data.get("sports") or []:
+        sport = sp.get("slug")
+        if sport not in TOP_SPORTS:
+            continue
+        for lg in sp.get("leagues") or []:
+            slug = lg.get("slug")
+            if not slug or (sport, slug) in followed:
+                continue
+            ids = {str(e["id"]) for e in lg.get("events") or [] if e.get("id")}
+            if not ids:
+                continue
+            key, label, extra = by_slug.get((sport, slug)) or (
+                "top", lg.get("abbreviation") or lg.get("shortName") or lg.get("name") or slug, "")
+            wanted[(sport, slug)] = (key, label, extra, ids)
+
+    date = day.strftime("%Y%m%d")
+
+    async def one(sport: str, slug: str, key: str, label: str, extra: str, ids: set[str]):
+        url = f"{ESPN}/{sport}/{slug}/scoreboard?dates={date}{extra}"
+        try:
+            async with session.get(url, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+                if resp.status != 200:
+                    return []
+                board = await resp.json(content_type=None)
+        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as err:
+            _LOGGER.debug("ESPN %s failed: %s", url, err)
+            return []
+        out = []
+        for e in board.get("events") or []:
+            if str(e.get("id")) in ids:
+                g = _game(key, label, sport, slug, e, channels)
+                g["top"] = True
+                out.append(g)
+        return out
+
+    results = await asyncio.gather(*(one(sp, sl, *v) for (sp, sl), v in wanted.items()))
+    return [g for lst in results for g in lst]

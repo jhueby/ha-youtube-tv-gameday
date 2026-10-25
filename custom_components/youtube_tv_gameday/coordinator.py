@@ -14,9 +14,9 @@ from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
 from .const import (ACTION_PREFIX, CONF_ALERT_NOTIFY, CONF_ALERT_SCOPE, CONF_APP_URL, CONF_FAVORITES,
-                    CONF_LEAGUES, CONF_LINEUP, CONF_LOCAL_TEAMS, CONF_LOCALS, CONF_POWER_ENTITY, DEFAULT_ALERT_SCOPE,
-                    DEFAULT_LEAGUES, DOMAIN, EVENT_ALERT, STREAMING)
-from .espn import ChannelMap, fetch_scoreboard, network_brand
+                    CONF_LEAGUES, CONF_LINEUP, CONF_LOCAL_TEAMS, CONF_LOCALS, CONF_POWER_ENTITY, CONF_TOP_EVENTS,
+                    DEFAULT_ALERT_SCOPE, DEFAULT_LEAGUES, DEFAULT_TOP_EVENTS, DOMAIN, EVENT_ALERT, LEAGUES, STREAMING)
+from .espn import ChannelMap, fetch_scoreboard, fetch_top_events, network_brand
 from .youtube_tv import TuneError, find_apps, launch_app, now_playing, tune
 
 _LOGGER = logging.getLogger(__name__)
@@ -74,6 +74,12 @@ class GameDayCoordinator(DataUpdateCoordinator[list[dict[str, Any]]]):
         leagues = self.config_entry.options.get(CONF_LEAGUES, DEFAULT_LEAGUES)
         await self._refresh_apps()
         games = await fetch_scoreboard(self.session, leagues, dt_util.now(), self.channels)
+        if self.config_entry.options.get(CONF_TOP_EVENTS, DEFAULT_TOP_EVENTS):
+            # ESPN's featured games from leagues not followed here (El Clasico when La Liga isn't picked)
+            followed = {(LEAGUES[k][1], slug) for k in leagues if k in LEAGUES for slug in LEAGUES[k][2]}
+            have = {g["id"] for g in games}
+            games += [g for g in await fetch_top_events(self.session, dt_util.now(), self.channels, followed)
+                      if g["id"] not in have]
         self.fetched_at = dt_util.utcnow()
         self._announce(games)
         return games

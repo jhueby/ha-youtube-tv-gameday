@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 DOMAIN = "youtube_tv_gameday"
-VERSION = "0.5.4"
+VERSION = "0.6.0"
 
 CONF_APP_URL = "app_url"
 CONF_LINEUP = "lineup"            # {channel name as shown in YouTube TV: live watch id}
@@ -13,6 +13,8 @@ CONF_POWER_ENTITY = "power_entity"
 CONF_LOCAL_TEAMS = "local_teams"      # teams your local CBS/FOX always carry (NFL regional coverage)
 CONF_ALERT_SCOPE = "alert_scope"    # which games alert: favorites / ranked / my_channels / all
 CONF_ALERT_NOTIFY = "alert_notify"  # notify service (e.g. notify.mobile_app_phone), optional
+CONF_TOP_EVENTS = "top_events"      # also show ESPN's featured games from leagues you don't follow
+DEFAULT_TOP_EVENTS = True
 
 ALERT_SCOPES = ["favorites", "ranked", "my_channels", "all"]
 DEFAULT_ALERT_SCOPE = ["favorites", "ranked"]
@@ -21,6 +23,9 @@ ACTION_PREFIX = "YTGD_TUNE|"         # mobile_app notification action: YTGD_TUNE
 
 CARD_URL = "/youtube_tv_gameday/youtube-tv-gameday-card.js"
 ESPN = "https://site.api.espn.com/apis/site/v2/sports"
+# ESPN's homepage scores bar: a hand-picked set of the day's big games across leagues ("top events")
+ESPN_HEADER = "https://site.web.api.espn.com/apis/v2/scoreboard/header?lang=en&region=us"
+TOP_SPORTS = ("football", "basketball", "baseball", "hockey", "soccer")   # two-team sports the card can draw
 
 # key: (label, sport, [league slugs], extra query)
 LEAGUES: dict[str, tuple[str, str, list[str], str]] = {
@@ -33,7 +38,12 @@ LEAGUES: dict[str, tuple[str, str, list[str], str]] = {
     "nhl": ("NHL", "hockey", ["nhl"], ""),
     "epl": ("Premier League", "soccer", ["eng.1"], ""),
     "ucl": ("Champions League", "soccer", ["uefa.champions"], ""),
+    "laliga": ("La Liga", "soccer", ["esp.1"], ""),
+    "seriea": ("Serie A", "soccer", ["ita.1"], ""),
+    "bundesliga": ("Bundesliga", "soccer", ["ger.1"], ""),
+    "ligue1": ("Ligue 1", "soccer", ["fra.1"], ""),
     "mls": ("MLS", "soccer", ["usa.1"], ""),
+    "ligamx": ("Liga MX", "soccer", ["mex.1"], ""),
     "intl": ("International", "soccer", [
         "fifa.friendly", "fifa.world", "fifa.worldq.concacaf", "fifa.worldq.uefa", "fifa.worldq.conmebol",
         "concacaf.nations.league", "concacaf.gold", "conmebol.america", "uefa.euro", "uefa.nations",

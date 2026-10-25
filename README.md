@@ -25,8 +25,11 @@ channel bar built from your lineup. Tap any game to tune the TV.*
 ## Features
 
 - Live, upcoming and final games for **NFL, college football, MLB, NBA, WNBA, college
-  basketball, NHL, Premier League, Champions League, MLS and international soccer**
-  (pick which leagues in the options).
+  basketball, NHL, Premier League, Champions League, La Liga, Serie A, Bundesliga, Ligue 1,
+  MLS, Liga MX and international soccer** (pick which leagues in the options).
+- **The day's big games from other leagues:** games ESPN features on its homepage scores bar
+  (El Clásico, a big Serie A match, a marquee NWSL game) show up too, marked **Featured**, even
+  when you don't follow that league. On by default; turn it off under **Configure**.
 - Scores, clock, AP rankings, possession and red-zone for football, a base/out diamond and
   count for baseball.
 - **Tap a game → the TV tunes to its channel.** Games on networks you don't get
