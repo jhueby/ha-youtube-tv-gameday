@@ -379,8 +379,9 @@ class YouTubeTvGamedayCard extends HTMLElement {
     const chan = d.saved_stream ? `<span class="net saved">📌 Saved stream</span>`
       : d.channel ? `<span class="net on">📺 ${esc((this._short || {})[d.channel] || d.channel)}</span>`
       : d.app ? `<span class="net app">▶ ${esc(d.app)}</span>` : "";
-    const row = (t) => `<div class="ntrow ${t.winner === false ? "lose" : ""}">${logo(t)}
-      <span class="nm">${esc(t.name)}</span>${t.record ? `<span class="rec">${esc(t.record)}</span>` : ""}
+    const cc = this._cardCounts(d);
+    const row = (t, side) => `<div class="ntrow ${t.winner === false ? "lose" : ""}">${logo(t)}
+      <span class="nm">${esc(t.name)}</span>${this._cards(cc[side].y, cc[side].r)}${t.record ? `<span class="rec">${esc(t.record)}</span>` : ""}
       <span class="sc">${esc(t.score ?? "")}</span></div>`;
     const lead = (d.leaders || []).map((l) => {
       const c = (l.cats || [])[0]; return c ? `<span class="nl"><b>${esc(l.team)}</b> ${esc(c.who || "")} · ${esc(c.line)}</span>` : "";
@@ -398,10 +399,11 @@ class YouTubeTvGamedayCard extends HTMLElement {
         ${chan}${this._situation(lite)}
         <button class="nowx" data-nowhide="${esc(d.game_id)}" aria-label="Hide">✕</button></div>
       <div class="nowtv-body">
-        <div class="nowleft"><div class="nowteams">${row(a)}${row(h)}</div>${leftExtra}</div>
+        <div class="nowleft"><div class="nowteams">${row(a, "away")}${row(h, "home")}</div>${leftExtra}</div>
         <div class="nowwp">${rightMain}</div>
       </div>
       ${this._atBat(d, lite)}
+      ${this._timeline(d, a, h, false)}
       ${lead ? `<div class="nowleaders">${lead}</div>` : ""}
       ${play}
       <div class="nowmore">Tap for full details ›</div>
@@ -473,7 +475,7 @@ class YouTubeTvGamedayCard extends HTMLElement {
         onerror="if(this.dataset.light&&this.src!==this.dataset.light){this.src=this.dataset.light}" loading="lazy" alt="">`
         : `<span class="nologo"></span>`}
       ${t.rank ? `<span class="rk">${esc(t.rank)}</span>` : ""}
-      <span class="nm">${esc(t.name)}</span>${t.poss ? '<span class="poss" title="possession">◀</span>' : ""}
+      <span class="nm">${esc(t.name)}</span>${t.poss ? '<span class="poss" title="possession">◀</span>' : ""}${this._cards(t.yc, t.rc)}
       ${t.record ? `<span class="rec">${esc(t.record)}</span>` : ""}
       <span class="sc">${g.state === "pre" ? "" : esc(t.score ?? "")}</span></div>`;
   }
@@ -509,7 +511,8 @@ class YouTubeTvGamedayCard extends HTMLElement {
     const live = d.state === "in";
     const logo = (t) => t.logo ? `<img src="${esc(t.logo.replace("/500/", "/500-dark/"))}" data-light="${esc(t.logo)}"
       onerror="if(this.dataset.light&&this.src!==this.dataset.light){this.src=this.dataset.light}" alt="">` : "";
-    const head = (t) => `<div class="dteam">${logo(t)}<div class="dname">${esc(t.name)}
+    const cc = this._cardCounts(d);
+    const head = (t, side) => `<div class="dteam">${logo(t)}<div class="dname">${esc(t.name)}${this._cards(cc[side].y, cc[side].r)}
       ${t.record ? `<span class="rec">${esc(t.record)}</span>` : ""}</div><div class="dscore">${d.state === "pre" ? "" : esc(t.score ?? "")}</div></div>`;
     const ch = d.channel;
     const lbl = esc((a.abbr || "") + " @ " + (h.abbr || ""));
@@ -530,10 +533,11 @@ class YouTubeTvGamedayCard extends HTMLElement {
       <button class="x" data-close aria-label="Close">✕</button>
       <div class="dtop"><span class="lg">${esc(d.league || "")}</span>
         <span class="st">${live ? '<span class="livetag">LIVE</span> ' : ""}${esc(d.detail || "")}</span></div>
-      <div class="dhead">${head(a)}<div class="at">@</div>${head(h)}</div>
+      <div class="dhead">${head(a, "away")}<div class="at">@</div>${head(h, "home")}</div>
       ${d.alert && live ? `<div class="alertline big">${esc(d.alert.text)}</div>` : ""}
       <div class="dactions">${watch}</div>
       ${this._lineScore(d)}
+      ${this._timeline(d, a, h, true)}
       ${this._atBat(d, lite)}
       ${this._wpChart(d, a, h)}
       ${d.leaders?.length ? `<h3>Leaders</h3><div class="leaders">${d.leaders.map((l) => `<div class="lcol"><div class="lteam">${esc(l.team)}</div>
@@ -542,6 +546,63 @@ class YouTubeTvGamedayCard extends HTMLElement {
       ${d.plays?.length ? `<h3>${d.state === "post" ? "Last plays" : "Latest"}</h3><ol class="plays">${d.plays.map((p) => `<li>${esc(p)}</li>`).join("")}</ol>` : ""}
       ${chips.length ? `<div class="dchips">${chips.map((c) => `<span>${esc(c)}</span>`).join("")}</div>` : ""}
     </div>`;
+  }
+
+  // Soccer cards: red cards drawn one by one, yellows as one card with a count.
+  _cards(y, r) {
+    let out = "";
+    if (r) out += `<span class="cds" title="${r} red">${'<i class="cd r"></i>'.repeat(Math.min(r, 3))}</span>`;
+    if (y) out += `<span class="cds" title="${y} yellow"><i class="cd y"></i>${y > 1 ? `<b>${y}</b>` : ""}</span>`;
+    return out;
+  }
+
+  _cardCounts(d) {
+    const cc = { away: { y: 0, r: 0 }, home: { y: 0, r: 0 } };
+    for (const e of d.timeline || []) {
+      if (!cc[e.side]) continue;
+      if (e.kind === "yellow") cc[e.side].y++;
+      else if (e.kind === "red") cc[e.side].r++;
+    }
+    return cc;
+  }
+
+  // Soccer timeline: a 0-90' bar (120' with extra time) with goals and cards at their minute, away team
+  // above, home team below, filled up to the current minute. `full` (detail sheet) adds subs and a list.
+  _timeline(d, a, h, full) {
+    const tl = d.timeline;
+    if (!Array.isArray(tl) || (!tl.length && d.state !== "in")) return "";
+    const live = /^(\d+)'(?:\+(\d+))?/.exec(d.detail || "");
+    let now = live ? +live[1] + Math.min(+(live[2] || 0), 5) : (/^HT/i.test(d.detail || "") ? 45 : null);
+    const last = Math.max(0, ...tl.map((e) => e.min + Math.min(e.add || 0, 5)), now || 0);
+    const span = last > 95 ? 120 : 90;
+    if (d.state === "post") now = span;
+    const pos = (m) => Math.max(0, Math.min(100, (m / span) * 100));
+    const icon = (e) => ({
+      goal: "⚽", pen_goal: "⚽", own_goal: "⚽", pen_miss: "✕",
+      yellow: '<i class="cd y"></i>', red: '<i class="cd r"></i>', sub: "⇄",
+    }[e.kind] || "•");
+    const note = (e) => ({ own_goal: " (OG)", pen_goal: " (pen)", pen_miss: " (pen missed)" }[e.kind] || "");
+    const shown = tl.filter((e) => full || e.kind !== "sub");
+    const marks = shown.map((e) => `<span class="tm ${e.side === "home" ? "home" : "away"} k-${e.kind}"
+      style="left:${pos(e.min + Math.min(e.add || 0, 5) * 0.6).toFixed(1)}%" title="${esc(`${e.label} ${e.who || ""}${note(e)}`)}">${icon(e)}</span>`).join("");
+    const ticks = [45, 90, ...(span > 90 ? [105] : [])].map((m) =>
+      `<span class="tick ${m === 45 ? "ht" : ""}" style="left:${pos(m)}%"></span>`).join("");
+    const axis = [0, 45, 90, ...(span > 90 ? [120] : [])].map((m) =>
+      `<span style="left:${pos(m)}%">${m}'</span>`).join("");
+    const cc = this._cardCounts(d);
+    const sum = (t, side) => `${esc(t.abbr || "")}${this._cards(cc[side].y, cc[side].r) || ' <span class="none">no cards</span>'}`;
+    const key = full ? "" : tl.filter((e) => ["goal", "pen_goal", "own_goal", "red"].includes(e.kind)).map((e) =>
+      `<span class="tk">${icon(e)} ${esc((e.who || "").split(" ").slice(-1)[0])}${note(e)} ${esc(e.label)}</span>`).join("");
+    const abbr = { away: a.abbr || "", home: h.abbr || "" };
+    const list = full && tl.length ? `<ol class="tlist">${tl.map((e) => `<li class="${e.side === "home" ? "home" : "away"}">
+      <span class="m">${esc(e.label)}</span><span class="i">${icon(e)}</span>
+      <span class="w">${esc(e.who || "")}${note(e)}${e.kind === "sub" && e.out ? ` <span class="o">for ${esc(e.out)}</span>` : ""}</span>
+      <span class="t">${esc(abbr[e.side] || "")}</span></li>`).join("")}</ol>` : "";
+    return `<div class="tlwrap"><h3>Timeline <span class="tlsum">${sum(a, "away")} · ${sum(h, "home")}</span></h3>
+      <div class="tl"><span class="tside away">${esc(a.abbr || "")}</span><span class="tside home">${esc(h.abbr || "")}</span>
+        <div class="track"><div class="bar"><div class="fill" style="width:${pos(now || 0).toFixed(1)}%"></div></div>
+          ${ticks}${marks}<div class="axis">${axis}</div></div></div>
+      ${key ? `<div class="tlkey">${key}</div>` : ""}${list}</div>`;
   }
 
   _lineScore(d) {
@@ -687,6 +748,33 @@ const CSS = `
   .nowplay { margin-top:8px; font-size:14px; color:#e8edf5; }
   .nowplay .k { font-size:10px; letter-spacing:.14em; color:#7d8899; margin-right:6px; }
   .nowmore { text-align:right; color:#8fc1ff; font-size:12px; font-weight:700; margin-top:6px; }
+  .cds { display:inline-flex; align-items:center; gap:2px; margin-left:7px; font-size:11px; color:#c9d3e0; vertical-align:middle; }
+  .cds b { font-weight:800; margin-left:1px; }
+  .cd { display:inline-block; width:8px; height:11px; border-radius:1.5px; box-shadow:0 0 0 1px rgba(0,0,0,.35); }
+  .cd.y { background:#f5c84b; } .cd.r { background:#e5484d; }
+  .tlwrap h3 { align-items:center; }
+  .tlsum { letter-spacing:.02em; text-transform:none; color:#c9d3e0; display:inline-flex; align-items:center; gap:4px; }
+  .tlsum .none { color:#6f7d90; font-size:11px; }
+  .tl { position:relative; height:76px; padding-left:44px; }
+  .tside { position:absolute; left:0; font-size:11px; font-weight:800; color:#9aa7b8; letter-spacing:.04em; }
+  .tside.away { top:8px; } .tside.home { top:46px; }
+  .track { position:relative; height:100%; }
+  .bar { position:absolute; left:0; right:0; top:30px; height:8px; border-radius:4px; background:#1b2432; overflow:hidden; }
+  .bar .fill { position:absolute; left:0; top:0; bottom:0; background:linear-gradient(90deg, var(--c1), var(--c2)); opacity:.75; }
+  .tick { position:absolute; top:26px; width:1px; height:16px; background:#33425a; }
+  .tick.ht { background:#6f7d90; }
+  .tm { position:absolute; transform:translateX(-50%); font-size:15px; line-height:1; }
+  .tm.away { top:6px; } .tm.home { top:44px; }
+  .tm .cd { width:9px; height:13px; }
+  .tm.k-sub { font-size:12px; color:#7d8899; } .tm.k-pen_miss { color:#ff8a80; font-weight:800; }
+  .axis span { position:absolute; top:62px; transform:translateX(-50%); font-size:10.5px; color:#6f7d90; }
+  .axis span:first-child { transform:none; }
+  .tlkey { display:flex; flex-wrap:wrap; gap:6px 16px; font-size:14px; color:#e8edf5; margin-top:2px; }
+  .tlkey .tk { display:inline-flex; align-items:center; gap:6px; }
+  .tlist { list-style:none; margin:8px 0 0; padding:0; font-size:14px; }
+  .tlist li { display:grid; grid-template-columns:52px 24px 1fr auto; align-items:center; gap:6px; padding:5px 0; border-bottom:1px solid #1f2836; }
+  .tlist .m { color:#9aa7b8; font-variant-numeric:tabular-nums; } .tlist .i { text-align:center; }
+  .tlist .w { color:#e8edf5; } .tlist .o { color:#7d8899; } .tlist .t { color:#7d8899; font-size:12px; font-weight:700; }
   .atbat { display:flex; flex-wrap:wrap; gap:10px 28px; margin-top:12px; padding-top:12px; border-top:1px solid #203042; }
   .atbat .ab { display:flex; align-items:baseline; gap:9px; font-size:18px; min-width:0; }
   .atbat .ab .k { font-size:11px; letter-spacing:.12em; text-transform:uppercase; color:#7d8899; white-space:nowrap; }

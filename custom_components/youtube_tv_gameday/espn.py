@@ -106,6 +106,14 @@ def _game(league_key: str, label: str, sport: str, slug: str, event: dict[str, A
     st = comp.get("status") or event.get("status") or {}
     status = st.get("type") or {}
     situation = comp.get("situation") or {}
+    cards: dict[str, list[int]] = {}           # soccer: team id -> [yellow, red], from the match details
+    if sport == "soccer":
+        for det in comp.get("details") or []:
+            c = cards.setdefault(str((det.get("team") or {}).get("id")), [0, 0])
+            if det.get("redCard"):
+                c[1] += 1
+            elif det.get("yellowCard"):
+                c[0] += 1
     teams = []
     for t in sorted(comp.get("competitors") or [], key=lambda c: c.get("homeAway") != "away"):
         team = t.get("team") or {}
@@ -121,6 +129,8 @@ def _game(league_key: str, label: str, sport: str, slug: str, event: dict[str, A
             "rank": rank if rank and rank <= 25 else None,
             "record": ((t.get("records") or [{}])[0]).get("summary"),
             "poss": bool(situation.get("possession")) and situation.get("possession") == team.get("id"),
+            **({"yc": cards.get(str(team.get("id")), [0, 0])[0], "rc": cards.get(str(team.get("id")), [0, 0])[1]}
+               if sport == "soccer" else {}),
         })
     live = status.get("state") == "in"
     sit: dict[str, Any] = {}
@@ -238,6 +248,44 @@ def _at_bat(summary: dict[str, Any], pitcher_id: Any = None, batter_id: Any = No
     return out if (out["pitcher"] or out["batter"]) else None
 
 
+_SOCCER_QUIET = {"kickoff", "start-delay", "end-delay", "start-2nd-half", "end-regular-time"}
+
+
+def _soccer_timeline(summary: dict[str, Any], teams: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Goals, cards and substitutions with their minute and side ("away" / "home"), oldest first.
+    ESPN credits an own goal to the team it counts for, and a card to the player's team."""
+    side = {str(t.get("id")): ("away" if i == 0 else "home") for i, t in enumerate(teams)}  # teams: away first
+    out = []
+    for k in summary.get("keyEvents") or []:
+        code = (k.get("type") or {}).get("type") or ""
+        if k.get("shootout"):
+            continue
+        if code == "own-goal":
+            kind = "own_goal"
+        elif code == "penalty---scored":
+            kind = "pen_goal"
+        elif code.startswith("penalty"):
+            kind = "pen_miss"
+        elif k.get("scoringPlay") or code.startswith("goal"):
+            kind = "goal"
+        elif "red" in code:                    # red-card, yellow-red (second yellow)
+            kind = "red"
+        elif code == "yellow-card":
+            kind = "yellow"
+        elif code == "substitution":
+            kind = "sub"
+        else:
+            continue
+        label = (k.get("clock") or {}).get("displayValue") or ""
+        m = re.match(r"(\d+)'?(?:\+(\d+))?", label)
+        names = [(p.get("athlete") or {}).get("displayName") for p in k.get("participants") or []]
+        out.append({"min": int(m.group(1)) if m else 0, "add": int(m.group(2)) if m and m.group(2) else 0,
+                    "label": label, "side": side.get(str((k.get("team") or {}).get("id"))), "kind": kind,
+                    "who": names[0] if names else None,
+                    "out": names[1] if kind == "sub" and len(names) > 1 else None})   # sub: [on, off]
+    return out
+
+
 async def fetch_summary(session: aiohttp.ClientSession, sport: str, slug: str, event_id: str,
                         pitcher_id: Any = None, batter_id: Any = None) -> dict[str, Any]:
     """One game's detail for the card's long-press sheet."""
@@ -280,7 +328,8 @@ async def fetch_summary(session: aiohttp.ClientSession, sport: str, slug: str, e
     if sport == "football":
         plays = [p.get("text") for p in ((s.get("drives") or {}).get("current") or {}).get("plays") or []]
     elif sport == "soccer":
-        plays = [k.get("text") for k in s.get("keyEvents") or []]
+        plays = [k.get("text") for k in s.get("keyEvents") or []
+                 if (k.get("type") or {}).get("type") not in _SOCCER_QUIET]
     else:
         plays = [p.get("text") for p in s.get("plays") or []]
     plays = [p for p in plays if p][-6:][::-1]
@@ -292,6 +341,7 @@ async def fetch_summary(session: aiohttp.ClientSession, sport: str, slug: str, e
     return {
         "id": event_id, "state": status.get("state"), "detail": status.get("shortDetail") or status.get("detail"),
         "teams": teams, "winprob": wp, "leaders": leaders, "plays": plays, "atbat": atbat,
+        "timeline": _soccer_timeline(s, teams) if sport == "soccer" else None,
         "odds": {"line": pick.get("details"), "total": pick.get("overUnder")} if pick.get("details") else None,
         "venue": (info.get("venue") or {}).get("fullName"),
         "weather": f"{weather['temperature']}° {weather.get('conditionId') or ''}".strip()

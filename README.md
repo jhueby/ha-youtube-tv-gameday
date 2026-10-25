@@ -31,7 +31,10 @@ channel bar built from your lineup. Tap any game to tune the TV.*
   (El Clásico, a big Serie A match, a marquee NWSL game) show up too, marked **Featured**, even
   when you don't follow that league. On by default; turn it off under **Configure**.
 - Scores, clock, AP rankings, possession and red-zone for football, a base/out diamond and
-  count for baseball.
+  count for baseball, and yellow / red cards for soccer.
+- **Soccer timeline:** in a match's details (and on the On-your-TV panel), goals and cards sit on a
+  0–90' bar at their minute — away team above, home below — with the full minute-by-minute list
+  (scorers, cards, substitutions) in the detail sheet.
 - **Tap a game → the TV tunes to its channel.** Games on networks you don't get
   (ESPN+, Peacock, Paramount+…) are dimmed and show where they are.
 - A channel bar for jumping straight to ESPN, FOX, TBS, etc. — built from *your* lineup.
